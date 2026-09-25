@@ -47,6 +47,8 @@ def estado_limpo():
         with db.connect() as conn:
             # Ordem: filhas antes das mães, para não depender do CASCADE.
             for tabela in (
+                "source_usage",
+                "cards",
                 "notes",
                 "edges",
                 "mentions",

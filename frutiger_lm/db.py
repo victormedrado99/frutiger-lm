@@ -106,6 +106,41 @@ CREATE INDEX IF NOT EXISTS idx_mentions_concept ON mentions(concept_id);
 CREATE INDEX IF NOT EXISTS idx_mentions_source ON mentions(source_id);
 CREATE INDEX IF NOT EXISTS idx_edges_a ON edges(a_id);
 CREATE INDEX IF NOT EXISTS idx_edges_b ON edges(b_id);
+
+-- --------------------------------------------------------------------------
+-- O estudo (F4). O card guarda a própria âncora, para continuar conferível
+-- mesmo que o conceito ou a fonte mudem de nome ou saiam do grafo.
+-- --------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS cards (
+    id            TEXT PRIMARY KEY,
+    notebook_id   TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+    concept_id    TEXT REFERENCES concepts(id) ON DELETE SET NULL,
+    front         TEXT NOT NULL,
+    back          TEXT NOT NULL,
+    source_id     TEXT REFERENCES sources(id)  ON DELETE SET NULL,
+    excerpt       TEXT NOT NULL DEFAULT '',   -- o trecho que sustenta o verso
+    ease          REAL NOT NULL DEFAULT 2.5,
+    interval_days REAL NOT NULL DEFAULT 0,
+    due_at        REAL NOT NULL,
+    reps          INTEGER NOT NULL DEFAULT 0,
+    lapses        INTEGER NOT NULL DEFAULT 0,
+    created_at    REAL NOT NULL,
+    updated_at    REAL NOT NULL
+);
+
+-- Que fontes cada resposta CITOU. A citação `[n]` é o registro de uso (D051): em vez
+-- de instrumentar o agente, guardo o que ele já escreve.
+CREATE TABLE IF NOT EXISTS source_usage (
+    id          TEXT PRIMARY KEY,
+    source_id   TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    thread_id   TEXT NOT NULL DEFAULT '',
+    created_at  REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cards_notebook ON cards(notebook_id);
+CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due_at);
+CREATE INDEX IF NOT EXISTS idx_source_usage_source ON source_usage(source_id);
 """
 
 

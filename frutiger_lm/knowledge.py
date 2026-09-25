@@ -530,6 +530,105 @@ def grafo(
     return {"nodes": conceitos, "edges": arestas, "notebooks": cadernos}
 
 
+def lacunas(notebook_id: str, *, limite: int = 60) -> dict[str, list[dict[str, Any]]]:
+    """O que o material deste caderno não cobre — em fatos, não em opinião (D049).
+
+    Nenhuma consulta aqui usa modelo, de propósito. Um modelo listando "tópicos que
+    faltam" compararia o seu material com o que ele já sabe, e não com o que você
+    não tem: seria a única coisa neste app afirmada sem lastro. Cada item abaixo pode
+    ser conferido na fonte pela pessoa.
+    """
+    return {
+        "nao_desenvolvidos": _nao_desenvolvidos(notebook_id, limite),
+        "em_outro_caderno": _em_outro_caderno(notebook_id, limite),
+        "fontes_sem_contribuicao": fontes_que_nao_contribuiram(notebook_id),
+    }
+
+
+def _nao_desenvolvidos(notebook_id: str, limite: int) -> list[dict[str, Any]]:
+    """O material nomeou uma vez e nunca explicou: aparição única e sem ligação.
+
+    É o candidato mais útil a virar card, porque é exatamente onde a pessoa viu o
+    termo e não sabe o que ele é.
+    """
+    with connect() as conn:
+        linhas = conn.execute(
+            """SELECT c.id, c.name, COUNT(m.id) AS mentions
+               FROM concepts c
+               JOIN mentions m ON m.concept_id = c.id
+               WHERE m.notebook_id = ?
+                 AND NOT EXISTS (
+                     SELECT 1 FROM edges e
+                     WHERE e.kind = ? AND (e.a_id = c.id OR e.b_id = c.id)
+                 )
+               GROUP BY c.id
+               HAVING COUNT(m.id) = 1
+               ORDER BY c.name
+               LIMIT ?""",
+            (notebook_id, EXPLICITA, limite),
+        ).fetchall()
+    return [dict(linha) for linha in linhas]
+
+
+def _em_outro_caderno(notebook_id: str, limite: int) -> list[dict[str, Any]]:
+    """Conceitos que você estudou em outro caderno e que aqui nunca aparecem.
+
+    Só é possível saber isto porque o grafo é global (D045): é o cruzamento entre
+    cadernos que dá a lacuna, e é a informação que mais rende a quem estuda em
+    matérias separadas que na verdade se tocam.
+    """
+    with connect() as conn:
+        linhas = conn.execute(
+            """SELECT c.id, c.name,
+                      COUNT(DISTINCT m.notebook_id) AS cadernos,
+                      GROUP_CONCAT(DISTINCT n.title)  AS onde
+               FROM concepts c
+               JOIN mentions m  ON m.concept_id = c.id
+               JOIN notebooks n ON n.id = m.notebook_id
+               WHERE c.id NOT IN (SELECT concept_id FROM mentions WHERE notebook_id = ?)
+               GROUP BY c.id
+               ORDER BY cadernos DESC, c.name
+               LIMIT ?""",
+            (notebook_id, limite),
+        ).fetchall()
+    return [dict(linha) for linha in linhas]
+
+
+def fontes_que_nao_contribuiram(notebook_id: str) -> list[dict[str, Any]]:
+    """Fontes ativas que não geraram menção nenhuma: entraram e não viraram saber."""
+    with connect() as conn:
+        linhas = conn.execute(
+            """SELECT s.id, s.title, s.kind, s.chars
+               FROM sources s
+               WHERE s.notebook_id = ? AND s.active = 1 AND s.status = 'ready'
+                 AND NOT EXISTS (SELECT 1 FROM mentions m WHERE m.source_id = s.id)
+               ORDER BY s.title""",
+            (notebook_id,),
+        ).fetchall()
+    return [dict(linha) for linha in linhas]
+
+
+def conceitos_por_fonte(notebook_id: str) -> list[dict[str, Any]]:
+    """Quantos conceitos cada fonte do caderno sustenta.
+
+    Serve à pergunta "o que este material me deu?", e denuncia a fonte que gerou
+    pouquíssimo — que costuma ser material fora do assunto ou transcrição ruim.
+    """
+    with connect() as conn:
+        linhas = conn.execute(
+            """SELECT s.id, s.title, s.kind, s.chars,
+                      COUNT(DISTINCT m.concept_id) AS conceitos,
+                      COUNT(m.id) AS mencoes
+               FROM sources s
+               LEFT JOIN mentions m ON m.source_id = s.id
+               WHERE s.notebook_id = ? AND s.active = 1
+               GROUP BY s.id
+               ORDER BY conceitos DESC""",
+            (notebook_id,),
+        ).fetchall()
+    return [dict(linha) for linha in linhas]
+
+
 def estatisticas() -> dict[str, int]:
     with connect() as conn:
         return {
