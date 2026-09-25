@@ -26,6 +26,7 @@ from langchain_core.tools import BaseTool
 from ..db import get_notebook
 from ..prompts import build_global_prompt, build_notebook_prompt
 from . import llm
+from .tools.estudo import ferramentas_de_estudo
 from .tools.grafo import ferramentas_de_grafo
 from .tools.leitura import Escopo, ferramentas_de_leitura
 from .tools.web import ferramentas_de_web
@@ -36,18 +37,19 @@ log = logging.getLogger("frutiger.engine")
 def catalogo(notebook_id: str) -> list[BaseTool]:
     """O que o chat **de um caderno** expõe ao modelo (D025).
 
-    As três de leitura presas àquele caderno (D034), `web_extract` e as de grafo.
-    As de escrita e as de documento entram aqui quando existirem — e é este ponto
-    único que decide exposição, para não virar 25 ferramentas sempre visíveis.
+    As três de leitura presas àquele caderno (D034), `web_extract`, as de grafo e as
+    de estudo. As de escrita e as de documento entram aqui quando existirem — e é este
+    ponto único que decide exposição, para não virar 25 ferramentas sempre visíveis.
 
-    As de grafo entram nos dois catálogos sem escopo: o grafo é a camada que liga, e
-    o conceito que aparece em dois cadernos é o que há de mais interessante nele
-    (D045).
+    As de grafo entram nos dois catálogos sem escopo: o grafo é a camada que liga, e o
+    conceito que aparece em dois cadernos é o que há de mais interessante nele (D045).
+    As de estudo são presas ao caderno, porque a pergunta é sobre ele.
     """
     return [
         *ferramentas_de_leitura(Escopo.do_caderno(notebook_id)),
         *ferramentas_de_web(),
         *ferramentas_de_grafo(),
+        *ferramentas_de_estudo(notebook_id),
     ]
 
 
@@ -57,6 +59,9 @@ def catalogo_global() -> list[BaseTool]:
     Nenhuma ferramenta nova de leitura (D039). `listar_fontes` no escopo global vira
     o mapa de todos os cadernos, e `ler_fonte`/`buscar_nas_fontes` alcançam qualquer
     um. Duas listagens parecidas só dariam ao modelo a chance de escolher a errada.
+
+    As de estudo ficam de fora: "o que meu material não cobre" só faz sentido amarrado
+    a um caderno, e um card é revisão de UMA matéria.
     """
     return [
         *ferramentas_de_leitura(Escopo.todos()),

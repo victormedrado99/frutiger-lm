@@ -14,9 +14,9 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, ingest, knowledge, model_store, prompts
+from . import db, ingest, knowledge, model_store, prompts, study
 from .config import settings
-from .engine import agent, checkpoint, extracao, llm
+from .engine import agent, checkpoint, estudo, extracao, llm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("frutiger")
@@ -366,6 +366,16 @@ async def chat(notebook_id: str, payload: dict[str, Any] = Body(...)) -> Streami
 
         config = checkpoint.config(notebook_id)
         async for evento, dados in agent.eventos(agente, config, user_input):
+            if evento == "assistant.completed" and dados.get("content"):
+                # D051: os `[n]` que o modelo escreveu viram registro de uso. A
+                # numeração aqui é a MESMA que foi no prompt — só as fontes ativas,
+                # na ordem de `list_sources` (é o que `build_context` e `listar_fontes`
+                # usam). Se divergissem, o uso registrado seria de outra fonte.
+                study.registrar_uso_de_citacoes(
+                    dados["content"],
+                    db.list_sources(notebook_id, active_only=True),
+                    thread_id=checkpoint.thread_id(notebook_id),
+                )
             yield _sse(evento, dados)
 
     return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)
@@ -421,6 +431,14 @@ async def global_chat(payload: dict[str, Any] = Body(...)) -> StreamingResponse:
 
         config = checkpoint.config_global()
         async for evento, dados in agent.eventos(agente, config, user_input):
+            if evento == "assistant.completed" and dados.get("content"):
+                # No escopo global a numeração é a global (por criação), que é a que
+                # `fontes_ativas_globais` e o índice do prompt global usam.
+                study.registrar_uso_de_citacoes(
+                    dados["content"],
+                    db.fontes_ativas_globais(),
+                    thread_id=checkpoint.THREAD_GLOBAL,
+                )
             yield _sse(evento, dados)
 
     return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)
@@ -543,8 +561,136 @@ async def extrair_conceitos(notebook_id: str) -> StreamingResponse:
 
 
 # --------------------------------------------------------------------------- #
-# Outputs
+# Estudo (F4): cards, revisão, lacunas, contradições e notas
 # --------------------------------------------------------------------------- #
+
+
+@app.get("/api/notebooks/{notebook_id}/estudo")
+async def painel_de_estudo(notebook_id: str) -> dict[str, Any]:
+    """O painel inteiro numa chamada: resumo, lacunas e o que cada fonte deu.
+
+    As lacunas são consulta ao grafo, sem modelo (D049) — por isso podem vir junto e
+    de graça, e não escondidas atrás de um botão que gasta dinheiro.
+    """
+    _notebook_or_404(notebook_id)
+
+    por_fonte = knowledge.conceitos_por_fonte(notebook_id)
+    nunca_citadas = {f["id"] for f in study.fontes_nunca_citadas(notebook_id)}
+    for fonte in por_fonte:
+        fonte["nunca_citada"] = fonte["id"] in nunca_citadas
+
+    return {
+        "cards": study.resumo(notebook_id),
+        "lacunas": knowledge.lacunas(notebook_id),
+        "fontes": por_fonte,
+        "grafo": knowledge.estatisticas(),
+    }
+
+
+@app.get("/api/cards")
+async def listar_cards(notebook_id: str | None = None, devidos: bool = False) -> list[dict[str, Any]]:
+    """Os cards, ou só os vencidos quando `devidos=1`."""
+    if devidos:
+        return study.devidos(notebook_id)
+    if not notebook_id:
+        raise HTTPException(400, "Informe o caderno")
+    _notebook_or_404(notebook_id)
+    return study.listar(notebook_id)
+
+
+@app.post("/api/cards")
+async def criar_card(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Card criado à mão. O verso é seu, e nasce devido: se você criou, é para revisar."""
+    notebook_id = (payload.get("notebook_id") or "").strip()
+    frente = (payload.get("front") or "").strip()
+    verso = (payload.get("back") or "").strip()
+    if not notebook_id or not frente or not verso:
+        raise HTTPException(400, "Informe o caderno, a frente e o verso")
+    _notebook_or_404(notebook_id)
+
+    return study.criar_card(
+        notebook_id,
+        front=frente,
+        back=verso,
+        concept_id=payload.get("concept_id") or None,
+        source_id=payload.get("source_id") or None,
+        excerpt=payload.get("excerpt") or "",
+    )
+
+
+@app.post("/api/cards/{card_id}/revisar")
+async def revisar_card(card_id: str, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Aplica a nota da revisão e devolve o card reagendado."""
+    nota = (payload.get("nota") or "").strip()
+    revisado = study.revisar(card_id, nota)
+    if not revisado:
+        raise HTTPException(404, "Card não encontrado")
+    return revisado
+
+
+@app.delete("/api/cards/{card_id}")
+async def apagar_card(card_id: str) -> dict[str, Any]:
+    if not study.get_card(card_id):
+        raise HTTPException(404, "Card não encontrado")
+    study.apagar_card(card_id)
+    return {"apagado": card_id}
+
+
+@app.post("/api/notebooks/{notebook_id}/cards/gerar")
+async def gerar_cards(notebook_id: str) -> StreamingResponse:
+    """Gera cards dos conceitos, com progresso (D042: ação explícita e paga)."""
+    _notebook_or_404(notebook_id)
+
+    async def stream() -> AsyncIterator[str]:
+        try:
+            llm.atual()
+        except llm.ModeloNaoConfigurado as exc:
+            yield _sse("error", {"message": str(exc)})
+            yield _sse("done", {})
+            return
+
+        async for evento in estudo.gerar_cards(notebook_id):
+            nome = evento.pop("evento")
+            yield _sse(nome, evento)
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+@app.post("/api/notebooks/{notebook_id}/conflitos")
+async def achar_conflitos(notebook_id: str) -> StreamingResponse:
+    """Compara as fontes sobre os mesmos conceitos, com progresso (D050)."""
+    _notebook_or_404(notebook_id)
+
+    async def stream() -> AsyncIterator[str]:
+        try:
+            llm.atual()
+        except llm.ModeloNaoConfigurado as exc:
+            yield _sse("error", {"message": str(exc)})
+            yield _sse("done", {})
+            return
+
+        async for evento in estudo.detectar_contradicoes(notebook_id):
+            nome = evento.pop("evento")
+            yield _sse(nome, evento)
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+@app.post("/api/conceitos/{concept_id}/notas")
+async def criar_nota(concept_id: str, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    if not knowledge.get_conceito(concept_id):
+        raise HTTPException(404, "Conceito não encontrado")
+    corpo = (payload.get("body") or "").strip()
+    if not corpo:
+        raise HTTPException(400, "Nota vazia")
+    return knowledge.criar_nota(concept_id, corpo, notebook_id=payload.get("notebook_id") or None)
+
+
+@app.delete("/api/notas/{note_id}")
+async def apagar_nota(note_id: str) -> dict[str, Any]:
+    if not knowledge.apagar_nota(note_id):
+        raise HTTPException(404, "Nota não encontrada")
+    return {"apagada": note_id}
 
 @app.get("/api/outputs/templates")
 async def list_templates() -> list[dict[str, str]]:

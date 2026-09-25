@@ -185,6 +185,10 @@ def test_o_catalogo_global_tem_as_mesmas_ferramentas():
 
     As três de grafo entram nos dois catálogos (D045), sem escopo: o grafo é a
     camada que liga, e um conceito em dois cadernos é o que ele tem de melhor.
+
+    As de estudo (F4) são a exceção, e de propósito: elas ficam só no catálogo do
+    caderno. "O que meu material não cobre" só faz sentido amarrado a um caderno, e
+    card é revisão de UMA matéria — no chat global não haveria a que responder.
     """
     nomes = {t.name for t in agent.catalogo_global()}
     assert nomes == {
@@ -196,7 +200,9 @@ def test_o_catalogo_global_tem_as_mesmas_ferramentas():
         "vizinhanca_do_conceito",
         "registrar_relacao",
     }
-    assert nomes == {t.name for t in agent.catalogo(caderno("X"))}
+
+    do_caderno = {t.name for t in agent.catalogo(caderno("X"))}
+    assert do_caderno == nomes | {"lacunas_do_caderno", "cards_para_revisar"}
 
 
 def test_o_prompt_global_cita_todos_os_cadernos():

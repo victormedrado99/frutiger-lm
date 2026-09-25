@@ -44,6 +44,10 @@ def test_o_catalogo_do_caderno_tem_leitura_e_web():
         "buscar_no_grafo",
         "vizinhanca_do_conceito",
         "registrar_relacao",
+        # as de estudo (F4), presas ao caderno: "o que meu material não cobre" só faz
+        # sentido amarrado a um, e card é revisão de UMA matéria
+        "lacunas_do_caderno",
+        "cards_para_revisar",
     }
 
 

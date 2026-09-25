@@ -123,7 +123,13 @@ def _tipo_legivel(anotacao: Any) -> str:
     return "texto"
 
 
-def _descricao_do_formato(modelo: type[BaseModel]) -> str:
+def descrever_formato(modelo: type[BaseModel]) -> str:
+    """Descreve o JSON esperado, gerado do próprio Pydantic.
+
+    Público porque o F4 precisa do mesmo: qualquer lugar que use `json_mode` tem que
+    pôr o formato no prompt, e nenhum deles deve escrever a descrição à mão — ela
+    divergiria do validador em silêncio.
+    """
     linhas = ["Responda APENAS com um JSON, sem texto em volta, neste formato:", "{"]
     for nome, campo in modelo.model_fields.items():
         linhas.append(
@@ -141,7 +147,7 @@ def _descricao_do_formato(modelo: type[BaseModel]) -> str:
     return "\n".join(linhas)
 
 
-FORMATO = _descricao_do_formato(Extracao)
+FORMATO = descrever_formato(Extracao)
 
 # Medido contra a API real: `function_calling` não serve nos modelos de raciocínio, e
 # `json_schema` não é aceito. `json_mode` é o modo compatível — e o mais suportado

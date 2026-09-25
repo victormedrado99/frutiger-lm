@@ -431,6 +431,40 @@ def _cadernos_por_conceito(ids: list[str] | None = None) -> dict[str, list[str]]
     return {cid: sorted(set(titulos)) for cid, titulos in mapa.items()}
 
 
+def criar_nota(concept_id: str, body: str, *, notebook_id: str | None = None) -> dict[str, Any]:
+    """Uma nota sua sobre um conceito. É o que o grafo não pode ter: a sua voz."""
+    nota = {
+        "id": _id("not"),
+        "concept_id": concept_id,
+        "notebook_id": notebook_id,
+        "body": body.strip(),
+        "created_at": _now(),
+    }
+    with connect() as conn:
+        conn.execute(
+            """INSERT INTO notes (id, concept_id, notebook_id, body, created_at)
+               VALUES (:id, :concept_id, :notebook_id, :body, :created_at)""",
+            nota,
+        )
+    return nota
+
+
+def notas_do_conceito(concept_id: str) -> list[dict[str, Any]]:
+    with connect() as conn:
+        return [
+            dict(linha)
+            for linha in conn.execute(
+                "SELECT * FROM notes WHERE concept_id = ? ORDER BY created_at ASC",
+                (concept_id,),
+            )
+        ]
+
+
+def apagar_nota(note_id: str) -> bool:
+    with connect() as conn:
+        return conn.execute("DELETE FROM notes WHERE id = ?", (note_id,)).rowcount > 0
+
+
 def buscar(termo: str, limite: int = 20) -> list[dict[str, Any]]:
     """Busca por nome ou alias, já dizendo em quais cadernos o conceito aparece.
 

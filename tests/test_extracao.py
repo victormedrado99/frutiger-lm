@@ -120,7 +120,7 @@ def test_o_formato_e_gerado_do_pydantic_e_nao_escrito_a_mao():
         extracao.ConceitoExtraido.model_fields["tipo"]
     )
     try:
-        formato = extracao._descricao_do_formato(extracao.Extracao)
+        formato = extracao.descrever_formato(extracao.Extracao)
     finally:
         del extracao.ConceitoExtraido.model_fields["campo_de_teste"]
 
