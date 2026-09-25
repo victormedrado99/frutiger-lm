@@ -68,6 +68,8 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D027 | O grafo é populado por ferramentas do agente **e** por edição manual na UI | DECIDIDO |
 | D028 | Ferramenta do agente que produz documento roda como **subgrafo**, não como chamada aninhada | DECIDIDO |
 | D029 | Nome "Frutiger": verificar conflito de marca antes de publicar | ABERTO |
+| D030 | A chave da API mora em `<data_dir>/model.json` (0600) e **nunca** volta ao navegador | DECIDIDO |
+| D031 | Config de modelo vem da UI; `.env` (`LLM_AGENT`) é o fallback de quem prefere versionar | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -131,6 +133,42 @@ O certo: a ferramenta **dispara o subgrafo** do artefato e devolve um
 identificador; o painel direito acompanha aquele subgrafo e mostra o documento
 sendo escrito. Assim o botão e o chat compartilham a mesma implementação (D024) sem
 pagar o preço da aninhagem.
+
+### D030 — onde a chave da API mora
+
+```
+<data_dir>/model.json     modo 0600, escrita atômica
+```
+
+Três regras que valem para sempre:
+
+1. **A chave nunca sai inteira daqui.** O navegador recebe `has_key` e uma dica
+   mascarada (`sk-f••••••7890`). Há teste de rota que falha se a chave aparecer no
+   corpo HTTP.
+2. **Campo de chave vazio significa "não mexi".** O formulário devolve o campo em
+   branco de propósito; tratá-lo como valor novo apagaria a chave de quem só quis
+   trocar o modelo. Há teste para isso.
+3. **`data/` contém segredo e não se compartilha.** O arquivo fica no diretório de
+   dados para preservar "um diretório = uma instância", que é o que permite rodar
+   várias na VPS. É o preço consciente dessa escolha — documentado no README.
+
+Ficou no diretório de dados, e não em `~/.config`, exatamente por causa da
+propriedade de instância. Se um dia virar multiusuário de verdade, a chave sai
+daqui para um cofre por usuário.
+
+### D031 — ordem de precedência da config de modelo
+
+```
+UI (data/model.json)  →  .env (LLM_AGENT)  →  vazio
+```
+
+A UI ganha porque foi o caminho que a pessoa usou por último de forma explícita.
+O `.env` existe para quem prefere versionar a configuração em vez de clicar — e
+cobre o caso de VPS, onde você quer a config no ambiente.
+
+Formato do `.env`: `LLM_AGENT=openai|<base_url>|<modelo>|<chave>`. O prefixo
+`openai` está lá para deixar espaço a outros protocolos sem quebrar o formato
+depois (D020).
 
 ---
 
@@ -221,7 +259,9 @@ além. Não é só economia de prompt: é o que torna o app seguro de colocar na
 
 ## 5. Modelo
 
-Um modelo configurável para o agente, mais um de embedding para o grafo:
+Um modelo configurável para o agente, mais um de embedding para o grafo. A
+config vem da **UI** (botão "Modelo" na tela inicial) e cai no `.env` como
+fallback (D030, D031):
 
 ```
 LLM_AGENT = openai|https://api.deepseek.com/v1|deepseek-chat|<key>
@@ -231,7 +271,11 @@ LLM_EMBED = openai|http://127.0.0.1:1234/v1|nomic-embed-text|
 
 A mesma classe (`ChatOpenAI`) cobre OpenAI, DeepSeek, OpenRouter, Groq, vLLM,
 LM Studio (`:1234/v1`), llama.cpp (`:8080/v1`) e Ollama (via `/v1`). Modelo local
-não precisa de chave.
+não precisa de chave — e a UI sabe disso: endereço local não exige o campo.
+
+A tela tem **botão de testar conexão**, porque "salvei" e "funciona" são coisas
+diferentes. As falhas comuns viram dica acionável em vez de mensagem crua do
+provedor (esqueceu o LM Studio ligado → a mensagem diz isso e aponta a porta).
 
 Embeddings são **infraestrutura**, não agente: servem às arestas por similaridade
 (F6) e não passam pelo agente.
@@ -273,17 +317,19 @@ no mesmo arquivo SQLite.
 
 Cada fase é utilizável sozinha. Nada de fase que só serve se a próxima existir.
 
-### F1 — Alicerce (motor LangGraph)  ← PRÓXIMA
+### F1 — Alicerce (motor LangGraph)  ← EM ANDAMENTO
 - [x] rename completo para Frutiger LM (pacote, env, unit, banco) — D026
-- [ ] dependências pinadas: `langgraph`, `langchain`, `langchain-openai`,
-      `langgraph-checkpoint-sqlite` (D022)
-- [ ] `engine/llm.py`: fábrica de modelo a partir do `.env` (D020)
-- [ ] `engine/fake.py`: modelo falso para teste sem rede
+- [x] dependências pinadas: `langchain==1.4.2`, `langgraph==1.2.12`,
+      `langchain-openai==1.6.6`, `langgraph-checkpoint-sqlite==3.1.1` (D022)
+- [x] `model_store.py`: onde a chave mora, 0600, nunca devolve o valor (D030, D031)
+- [x] `engine/llm.py`: fábrica de modelo a partir da UI ou do `.env` (D020)
+- [x] `engine/fake.py`: modelo falso para teste sem rede
+- [x] rotas e UI de configuração de modelo (botão "Modelo" na tela inicial)
 - [ ] `engine/checkpoint.py`: `AsyncSqliteSaver`, 1 caderno = 1 `thread_id` (D019)
 - [ ] `engine/tools/leitura.py` + `web.py`
 - [ ] `engine/agent.py`: `create_agent` com `system_prompt` nosso e catálogo curado
       (D018, D023, D025)
-- [ ] rotas do app passando por `engine/` em vez do Hermes
+- [ ] rotas de chat do app passando por `engine/` em vez do Hermes
 - [ ] remover a configuração do API server do Hermes
 - [ ] **Critério de pronto:** o chat do caderno funciona **sem Hermes instalado**
 
@@ -415,5 +461,12 @@ OK  astream / astream_events / aget_state / aget_state_history
 ATENÇÃO  langgraph.prebuilt.create_react_agent DEPRECIADO (sai na v2)
 ```
 
-Primeiro trabalho: **F1**, começando por `engine/llm.py` + `engine/fake.py`,
-porque é o par que permite todo o resto ser testado sem rede e sem chave.
+Primeiro trabalho: **F1**, em andamento. Já entregues nesta fase: dependências
+pinadas, `model_store.py`, `engine/llm.py`, `engine/fake.py`, e a UI de
+configuração de modelo (botão "Modelo" na tela inicial) com rota de teste de
+conexão. Próximo: `engine/checkpoint.py` (D019), depois as ferramentas de leitura
+e o `agent.py`.
+
+O Hermes continua sendo o motor **até o último item de F1**, de propósito: o app
+está no ar e em uso, e não se derruba o que funciona para construir o que ainda
+não existe.

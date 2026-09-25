@@ -13,6 +13,7 @@
     <div class="brand">Frutiger <span>LM</span></div>
     <div class="spacer"></div>
     <span class="pill" id="engine-pill"><span class="spinner"></span> verificando motor…</span>
+    <button class="btn btn-ghost" id="btn-model" title="Configurar o modelo e a chave da API">Modelo</button>
     <button class="btn btn-primary" id="btn-new">Novo caderno</button>
   </header>
 
@@ -42,6 +43,57 @@
       <div class="modal-foot">
         <button class="btn" data-close="modal-new">Cancelar</button>
         <button class="btn btn-primary" id="btn-create">Criar caderno</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- modelo: chave da API, provedor e modelo -->
+  <div class="overlay" id="modal-model" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>Modelo</h2>
+        <button class="btn btn-ghost btn-sm" data-close="modal-model">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="hint" style="margin:0 0 16px">
+          A chave fica só na sua máquina, em <code>data/model.json</code> com permissão
+          <code>600</code>, e nunca é devolvida para o navegador. Endereço local
+          (LM Studio, llama.cpp) não pede chave.
+        </p>
+
+        <div class="field">
+          <label for="md-preset">Provedor</label>
+          <select id="md-preset"></select>
+        </div>
+
+        <div class="field">
+          <label for="md-url">Endereço</label>
+          <input type="url" id="md-url" placeholder="https://api.deepseek.com/v1" autocomplete="off" spellcheck="false">
+        </div>
+
+        <div class="field">
+          <label for="md-model">Modelo</label>
+          <input type="text" id="md-model" placeholder="deepseek-chat" autocomplete="off" spellcheck="false">
+        </div>
+
+        <div class="field">
+          <label for="md-key">Chave da API <span class="muted" id="md-key-state"></span></label>
+          <input type="password" id="md-key" placeholder="cole a chave aqui" autocomplete="off">
+          <div class="hint" id="md-key-hint"></div>
+        </div>
+
+        <div class="field">
+          <label for="md-temp">Temperatura: <b id="md-temp-val">0.2</b></label>
+          <input type="range" id="md-temp" min="0" max="1" step="0.1" value="0.2">
+        </div>
+
+        <div id="md-result" hidden></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="btn-test-model">Testar conexão</button>
+        <div class="spacer"></div>
+        <button class="btn" data-close="modal-model">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-model">Salvar</button>
       </div>
     </div>
   </div>

@@ -19,7 +19,7 @@ from .config import settings
 
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/126.0 Safari/537.36 Caderno/0.1"
+    "Chrome/126.0 Safari/537.36 FrutigerLM/0.1"
 )
 HTTP_TIMEOUT = httpx.Timeout(connect=15.0, read=60.0, write=30.0, pool=10.0)
 

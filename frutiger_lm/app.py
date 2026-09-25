@@ -1,4 +1,4 @@
-"""App FastAPI do Caderno — casca fina sobre o motor Hermes."""
+"""App FastAPI do Frutiger LM — casca fina sobre o motor."""
 
 from __future__ import annotations
 
@@ -15,20 +15,24 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFil
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, hermes, ingest, prompts
+from . import db, hermes, ingest, model_store, prompts
 from .config import settings
+from .engine import llm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-log = logging.getLogger("caderno")
+log = logging.getLogger("frutiger")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+# Quanto esperar por uma resposta mínima do modelo no botão "Testar".
+TESTE_TIMEOUT_S = 30.0
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     db.init_db()
     log.info(
-        "Caderno em %s | motor: %s | dados: %s",
+        "Frutiger LM em %s | motor: %s | dados: %s",
         settings.port,
         settings.hermes_url,
         settings.data_dir,
@@ -36,7 +40,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="Caderno", version="0.1.0", docs_url="/api/docs", lifespan=lifespan)
+app = FastAPI(title="Frutiger LM", version="0.1.0", docs_url="/api/docs", lifespan=lifespan)
 
 
 # --------------------------------------------------------------------------- #
@@ -109,7 +113,7 @@ async def status() -> dict[str, Any]:
         except hermes.HermesError as exc:
             auth_error = str(exc)
     return {
-        "app": "caderno",
+        "app": "frutiger-lm",
         "version": app.version,
         "engine": engine,
         "engine_url": settings.hermes_url,
@@ -119,6 +123,86 @@ async def status() -> dict[str, Any]:
         "data_dir": str(settings.data_dir),
         "inline_limit": settings.inline_limit,
         "output_templates": {k: v["label"] for k, v in prompts.OUTPUT_TEMPLATES.items()},
+        # o motor novo (F1) usa isto; o Hermes acima sai quando ele terminar
+        "model_configured": model_store.load().configurado,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Modelo — a API key (D020, D030)
+# --------------------------------------------------------------------------- #
+
+def _dica_de_falha(exc: Exception) -> str:
+    """Traduz as falhas que mais acontecem para algo acionável.
+
+    O caso real: a pessoa escolhe modelo local, esquece o LM Studio desligado, e
+    recebe só "Connection error." — que não diz o que fazer.
+    """
+    cfg = model_store.load()
+    texto = str(exc).lower()
+    if any(p in texto for p in ("onnection", "refused", "unreachable", "getaddrinfo")):
+        if not cfg.precisa_de_chave:
+            return (
+                " — o servidor local não respondeu. O LM Studio costuma ouvir em "
+                ":1234 e o llama.cpp em :8080; confira se está rodando."
+            )
+        return f" — não consegui alcançar {cfg.base_url}. Confira o endereço e a sua conexão."
+    if any(p in texto for p in ("401", "ncorrect api key", "nauthorized")):
+        return " — a chave foi recusada. Confira se ela está completa e ativa no provedor."
+    if "404" in texto:
+        return " — o endereço respondeu, mas o modelo não existe nele. Confira o nome do modelo."
+    return ""
+
+
+@app.get("/api/settings/model")
+async def get_model_settings() -> dict[str, Any]:
+    """O que a UI pode saber sobre a config de modelo.
+
+    Não inclui a chave, por construção — ver `model_store.masked()`.
+    """
+    return model_store.masked()
+
+
+@app.post("/api/settings/model")
+async def set_model_settings(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Salva a config vinda do formulário.
+
+    `api_key` ausente significa "não mexi no campo", e preserva a chave salva —
+    o formulário devolve ela mascarada, então tratá-la como novo valor apagaria
+    a chave de quem só quis trocar o modelo.
+    """
+    cfg = model_store.apply(
+        base_url=payload.get("base_url", ""),
+        model=payload.get("model", ""),
+        api_key=payload.get("api_key"),
+        temperature=payload.get("temperature"),
+    )
+    return {"configured": cfg.configurado, **model_store.masked()}
+
+
+@app.post("/api/settings/model/test")
+async def test_model_settings() -> dict[str, Any]:
+    """Chamada mínima de verdade, para separar "salvei" de "funciona"."""
+    try:
+        modelo = llm.atual()
+    except llm.ModeloNaoConfigurado as exc:
+        raise HTTPException(400, str(exc)) from None
+
+    try:
+        resposta = await asyncio.wait_for(
+            modelo.ainvoke("Responda apenas com a palavra: ok"), timeout=TESTE_TIMEOUT_S
+        )
+    except TimeoutError:
+        raise HTTPException(
+            504, f"O modelo não respondeu em {TESTE_TIMEOUT_S:.0f}s. Se for modelo local, ele está rodando?"
+        ) from None
+    except Exception as exc:  # noqa: BLE001 - a mensagem do provedor é o que ajuda
+        raise HTTPException(502, f"{type(exc).__name__}: {str(exc)[:300]}{_dica_de_falha(exc)}") from None
+
+    return {
+        "ok": True,
+        "model": llm.resolve().model,
+        "reply": str(resposta.content)[:200],
     }
 
 

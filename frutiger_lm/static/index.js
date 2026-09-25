@@ -58,6 +58,13 @@
         pill.textContent = "motor ok · " + s.engine_url.replace(/^https?:\/\//, "");
         pill.title = "Motor respondendo e autenticado.";
       }
+      // Indicador do modelo: é o que a pessoa vai configurar no botão ao lado.
+      var bm = document.getElementById("btn-model");
+      bm.classList.toggle("model-on", !!s.model_configured);
+      bm.classList.toggle("model-off", !s.model_configured);
+      bm.title = s.model_configured
+        ? "Modelo configurado"
+        : "Nenhum modelo configurado — clique para colocar a sua chave";
     } catch (err) {
       pill.className = "pill bad";
       pill.textContent = "motor inacessível";
@@ -125,6 +132,105 @@
     document.getElementById(id).addEventListener("keydown", function (ev) {
       if (ev.key === "Enter" && (id === "nb-title" || ev.metaKey || ev.ctrlKey)) create();
     });
+  });
+
+  /* --------------------------- modelo / API key --------------------------- */
+
+  var modelState = { presets: {}, hasKey: false };
+
+  function el(id) { return document.getElementById(id); }
+
+  async function openModel() {
+    try {
+      var s = await C.api("/api/settings/model");
+      modelState.presets = s.presets || {};
+      modelState.hasKey = !!s.has_key;
+
+      el("md-preset").innerHTML = '<option value="">personalizado</option>' +
+        Object.keys(modelState.presets).map(function (nome) {
+          return '<option value="' + C.escapeHtml(nome) + '">' + C.escapeHtml(nome) + "</option>";
+        }).join("");
+
+      el("md-url").value = s.base_url || "";
+      el("md-model").value = s.model || "";
+      el("md-temp").value = s.temperature;
+      el("md-temp-val").textContent = s.temperature;
+
+      // A chave nunca volta do servidor: o campo sai vazio de propósito e o
+      // placeholder avisa que em branco significa "manter a que já está salva".
+      el("md-key").value = "";
+      el("md-key").placeholder = s.has_key ? "deixe em branco para manter a salva" : "cole a chave aqui";
+      el("md-key-state").textContent = s.has_key ? "(salva: " + s.key_hint + ")" : "(nenhuma)";
+      el("md-key-hint").textContent = s.needs_key
+        ? "Endereço remoto: a chave é obrigatória."
+        : "Endereço local (LM Studio, llama.cpp): a chave não é necessária.";
+
+      el("md-result").hidden = true;
+      C.openModal("modal-model");
+      setTimeout(function () { el("md-url").focus(); }, 40);
+    } catch (err) { C.toast(err.message, "err"); }
+  }
+
+  function aplicarPreset() {
+    var p = modelState.presets[el("md-preset").value];
+    if (!p) return;
+    el("md-url").value = p.base_url;
+    if (p.model) el("md-model").value = p.model;
+  }
+
+  function corpoDoModelo() {
+    var corpo = {
+      base_url: el("md-url").value.trim(),
+      model: el("md-model").value.trim(),
+      temperature: parseFloat(el("md-temp").value)
+    };
+    var digitada = el("md-key").value.trim();
+    if (digitada) corpo.api_key = digitada;  // ausente = preserva a chave salva
+    return corpo;
+  }
+
+  async function salvarModelo() {
+    var btn = el("btn-save-model");
+    btn.disabled = true;
+    try {
+      await C.api("/api/settings/model", { method: "POST", body: corpoDoModelo() });
+      C.toast("Configuração de modelo salva.", "ok");
+      C.closeModal("modal-model");
+      loadStatus();
+    } catch (err) { C.toast(err.message, "err"); }
+    btn.disabled = false;
+  }
+
+  async function testarModelo() {
+    var btn = el("btn-test-model");
+    var caixa = el("md-result");
+    btn.disabled = true;
+    caixa.hidden = false;
+    caixa.className = "out-item";
+    caixa.innerHTML = '<span class="spinner"></span> falando com o modelo…';
+    try {
+      // Salva antes de testar: senão o teste usaria a config anterior e diria
+      // "ok" para uma chave que a pessoa acabou de trocar.
+      await C.api("/api/settings/model", { method: "POST", body: corpoDoModelo() });
+      var r = await C.api("/api/settings/model/test", { method: "POST" });
+      caixa.className = "out-item ok-box";
+      caixa.innerHTML = "✓ <b>" + C.escapeHtml(r.model) + "</b> respondeu: " + C.escapeHtml(r.reply || "(vazio)");
+    } catch (err) {
+      caixa.className = "out-item err-box";
+      caixa.innerHTML = "✕ " + C.escapeHtml(err.message);
+    }
+    btn.disabled = false;
+  }
+
+  el("btn-model").addEventListener("click", openModel);
+  el("md-preset").addEventListener("change", aplicarPreset);
+  el("md-temp").addEventListener("input", function () {
+    el("md-temp-val").textContent = el("md-temp").value;
+  });
+  el("btn-save-model").addEventListener("click", salvarModelo);
+  el("btn-test-model").addEventListener("click", testarModelo);
+  ["md-url", "md-model", "md-key"].forEach(function (id) {
+    el(id).addEventListener("keydown", function (ev) { if (ev.key === "Enter") salvarModelo(); });
   });
 
   loadStatus();
