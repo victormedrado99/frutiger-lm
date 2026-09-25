@@ -134,6 +134,14 @@ frutiger_lm/
   sintoma é o pior possível: a correção está no disco, o servidor serve a nova, e a
   tela mostra a antiga — então o defeito parece ser do código que você acabou de
   escrever. O app manda `no-cache` em `/static` (revalidação por etag, 304 barato).
+- **O modelo pode ser honesto e o código estragar a honestidade.** Pedimos ao extrator
+  de cartões que escrevesse "não está no material" quando o trecho não respondesse — e
+  ele escreveu, corretamente, em 3 de 12 casos. O código criava o cartão assim mesmo,
+  e a fila de revisão enchia de cartões sem resposta. **Antes de guardar a saída do
+  modelo, pergunte se ela é guardável**: `vale_a_pena()` existe por isso.
+- **Pergunta de cartão tem que nomear o conceito.** "Qual é o primeiro campo?" não
+  ensina nada: o primeiro campo *de quê?* Um cartão ambíguo é pior que nenhum, porque
+  a pessoa marca "bom" sem ter recuperado coisa alguma.
 
 ## Validar com o modelo real
 

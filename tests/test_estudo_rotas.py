@@ -184,6 +184,9 @@ def test_nota_pela_rota(cliente):
     assert len(notas) == 1
     assert "cai na prova" in notas[0]["body"]
 
+    # A tela do conceito recebe as notas junto (é o painel que as mostra)
+    assert len(cliente.get(f"/api/conceitos/{dados['conceito']['id']}").json()["notas"]) == 1
+
     assert cliente.delete(f"/api/notas/{notas[0]['id']}").status_code == 200
     assert knowledge.notas_do_conceito(dados["conceito"]["id"]) == []
 

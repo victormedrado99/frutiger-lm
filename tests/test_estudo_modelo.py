@@ -162,6 +162,50 @@ def test_sem_trecho_nao_ha_card():
     assert knowledge.get_conceito(orfao["id"]) is not None
 
 
+def test_card_sem_resposta_no_material_NAO_e_criado():
+    """O defeito que só o material real mostrou.
+
+    Na primeira extração de verdade, 3 dos 12 cartões nasceram com "não está no
+    material" como resposta: o modelo foi honesto (o trecho não respondia) e o código
+    criava o cartão assim mesmo. Um cartão sem resposta não ensina nada e ainda ocupa
+    a fila de revisão.
+    """
+    dados = com_grafo()
+    extrator = fake.extrai([card_proposto("O que é KWP2000?", "não está no material.")])
+
+    eventos = correr(estudo.gerar_cards(dados["nb"], modelo=extrator))
+    itens = [e for e in eventos if e["evento"] == "cards.item"]
+
+    assert itens[0]["criado"] is False
+    assert "não responde" in itens[0]["motivo"]
+    assert study.listar(dados["nb"]) == [], "criou cartão sem resposta"
+    assert eventos[-1]["criados"] == 0
+
+
+def test_card_sem_pergunta_ou_sem_resposta_nao_e_criado():
+    dados = com_grafo()
+    for ruim in (card_proposto("", "resposta"), card_proposto("pergunta?", "")):
+        eventos = correr(estudo.gerar_cards(dados["nb"], modelo=fake.extrai([ruim])))
+        itens = [e for e in eventos if e["evento"] == "cards.item"]
+        assert itens[0]["criado"] is False
+        assert study.listar(dados["nb"]) == []
+
+
+def test_vale_a_pena_aceita_resposta_de_verdade():
+    serve, motivo = estudo.vale_a_pena(
+        card_proposto("O que é KWP2000?", "Um protocolo de diagnóstico sobre a linha K.")
+    )
+    assert serve is True
+    assert motivo == ""
+
+
+def test_o_prompt_exige_pergunta_que_se_sustenta_sozinha():
+    """Sem isto o cartão sai ambíguo: "Qual é o primeiro campo?" — de quê?"""
+    enviado = "\n".join(str(m.content) for m in estudo._mensagens_card("11-bit identifier", "trecho", ""))
+    assert "SOZINHA" in enviado
+    assert "Nomeie o conceito" in enviado
+
+
 def test_gerar_cards_sem_modelo_configurado_vira_evento_acionavel():
     dados = com_grafo()
     eventos = correr(estudo.gerar_cards(dados["nb"]))

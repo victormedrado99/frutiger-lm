@@ -488,6 +488,276 @@
     }
   });
 
+  /* --------------------------------------------------------- estudar (F4)
+     O painel de estudo inteiro. As lacunas e o resumo vêm numa chamada só e não custam
+     modelo (D049); gerar cards e procurar contradições custam, então são botões (D042)
+     com progresso.
+  */
+
+  var estudoUI = {
+    resumo: document.getElementById("estudo-resumo"),
+    revisao: document.getElementById("revisao"),
+    lacunas: document.getElementById("lacunas"),
+    conflitos: document.getElementById("conflitos"),
+    fontes: document.getElementById("fontes-estudo"),
+  };
+
+  var revisao = { fila: [], revelado: false };
+
+  function notaBtn(nota, rotulo, titulo) {
+    return '<button class="btn btn-sm" data-nota="' + nota + '" title="' + titulo + '">' +
+      rotulo + "</button>";
+  }
+
+  function pintarRevisao() {
+    if (!revisao.fila.length) {
+      estudoUI.revisao.innerHTML =
+        '<div class="hint" style="font-size:13px">Nada vencido agora. ' +
+        "Gere cartões dos conceitos ou volte mais tarde.</div>";
+      return;
+    }
+
+    var card = revisao.fila[0];
+    var html =
+      '<div class="card-revisao">' +
+        '<div class="pergunta">' + C.escapeHtml(card.front) + "</div>";
+
+    if (!revisao.revelado) {
+      html += '<button class="btn btn-primary" id="btn-revelar" style="width:100%">Mostrar resposta</button>';
+    } else {
+      html += '<div class="resposta">' + window.renderMarkdown(card.back || "—") + "</div>";
+      if (card.excerpt) {
+        // O lastro ao lado do verso: é o que faz o SRS valer algo.
+        html += '<div class="lastro">' + C.escapeHtml(card.excerpt) +
+          (card.source_title ? " — " + C.escapeHtml(card.source_title) : "") + "</div>";
+      }
+      html += '<div class="notas">' +
+        notaBtn("errei", "Errei", "Volta nesta sessão") +
+        notaBtn("dificil", "Difícil", "Intervalo curto") +
+        notaBtn("bom", "Bom", "Espaça") +
+        notaBtn("facil", "Fácil", "Espaça mais") +
+        "</div>";
+    }
+
+    html += '<div style="margin-top:10px;color:var(--muted);font-size:11.5px">' +
+      (revisao.fila.length > 1 ? (revisao.fila.length - 1) + " depois deste" : "último da fila") +
+      "</div>";
+    html += "</div>";
+
+    estudoUI.revisao.innerHTML = html;
+
+    var revelar = document.getElementById("btn-revelar");
+    if (revelar) {
+      revelar.addEventListener("click", function () {
+        revisao.revelado = true;
+        pintarRevisao();
+      });
+    }
+    estudoUI.revisao.querySelectorAll("[data-nota]").forEach(function (botao) {
+      botao.addEventListener("click", function () {
+        responderCard(card.id, botao.dataset.nota);
+      });
+    });
+  }
+
+  async function responderCard(cardId, nota) {
+    try {
+      await C.api("/api/cards/" + cardId + "/revisar", { method: "POST", body: { nota: nota } });
+    } catch (err) { C.toast(err.message, "err"); return; }
+
+    // "Errei" volta na mesma sessão: em vez de sair da fila, vai para o fim dela.
+    if (nota === "errei") {
+      revisao.fila.push(revisao.fila.shift());
+    } else {
+      revisao.fila.shift();
+    }
+    revisao.revelado = false;
+    pintarRevisao();
+    carregarEstudo();
+  }
+
+  function pintarLacunas(lacunas, grafo) {
+    if (!grafo.conceitos) {
+      estudoUI.lacunas.innerHTML =
+        '<div class="hint" style="font-size:13px">Nada extraído ainda. Use ' +
+        "<b>Extrair conceitos</b>, na coluna das fontes — as lacunas saem do grafo.</div>";
+      return;
+    }
+
+    var partes = [];
+
+    if (lacunas.nao_desenvolvidos.length) {
+      partes.push(
+        '<div class="lacuna-grupo"><h5>O material citou e não explicou</h5><ul>' +
+        lacunas.nao_desenvolvidos.slice(0, 12).map(function (c) {
+          return "<li><b>" + C.escapeHtml(c.name) + "</b> <span>· 1 menção, sem ligação</span></li>";
+        }).join("") + "</ul></div>"
+      );
+    }
+
+    if (lacunas.em_outro_caderno.length) {
+      partes.push(
+        '<div class="lacuna-grupo"><h5>Você estudou em outro caderno e aqui não aparece</h5><ul>' +
+        lacunas.em_outro_caderno.slice(0, 12).map(function (c) {
+          return "<li><b>" + C.escapeHtml(c.name) + "</b> <span>· em " +
+            C.escapeHtml(c.onde || "") + "</span></li>";
+        }).join("") + "</ul></div>"
+      );
+    }
+
+    if (lacunas.fontes_sem_contribuicao.length) {
+      partes.push(
+        '<div class="lacuna-grupo"><h5>Fontes que não geraram conhecimento</h5><ul>' +
+        lacunas.fontes_sem_contribuicao.map(function (f) {
+          return "<li><b>" + C.escapeHtml(f.title) + "</b> <span>· " +
+            C.formatChars(f.chars) + "</span></li>";
+        }).join("") + "</ul></div>"
+      );
+    }
+
+    if (!partes.length) {
+      partes.push('<div class="hint" style="font-size:13px">Nenhuma lacuna conferível: ' +
+        "todo conceito registrado se liga a algo.</div>");
+    }
+
+    partes.push('<div class="hint" style="font-size:11.5px;margin-top:10px">' +
+      "São fatos do seu material, não opinião sobre o que falta — cada um você confere na fonte." +
+      "</div>");
+
+    estudoUI.lacunas.innerHTML = partes.join("");
+  }
+
+  function pintarFontes(fontes) {
+    if (!fontes.length) {
+      estudoUI.fontes.innerHTML = '<div class="hint" style="font-size:13px">Sem fontes.</div>';
+      return;
+    }
+    estudoUI.fontes.innerHTML = fontes.map(function (f) {
+      return '<div class="fonte-linha"><b>' + C.escapeHtml(f.title) + "</b>" +
+        (f.nunca_citada ? '<span class="etiqueta-alerta">nunca citada</span>' : "") +
+        '<span class="conta">' + f.conceitos + " conceito(s)</span></div>";
+    }).join("");
+  }
+
+  async function carregarEstudo() {
+    var dados;
+    try {
+      dados = await C.api("/api/notebooks/" + NB_ID + "/estudo");
+    } catch (err) {
+      estudoUI.resumo.textContent = "Erro ao carregar o painel: " + err.message;
+      return;
+    }
+
+    estudoUI.resumo.innerHTML = [
+      '<span><b style="color:var(--accent)">' + dados.cards.vencidos + "</b> para revisar</span>",
+      "<span>" + dados.cards.total + " cartão(ões)</span>",
+      "<span>" + dados.grafo.conceitos + " conceito(s)</span>",
+      "<span>" + dados.grafo.arestas + " ligação(ões)</span>",
+    ].join("");
+
+    if (!revisao.fila.length) {
+      revisao.fila = await C.api("/api/cards?devidos=1&notebook_id=" + NB_ID);
+      revisao.revelado = false;
+    }
+    pintarRevisao();
+    pintarLacunas(dados.lacunas, dados.grafo);
+    pintarFontes(dados.fontes);
+  }
+
+  document.querySelectorAll(".tabs-inline button").forEach(function (botao) {
+    botao.addEventListener("click", function () {
+      document.querySelectorAll(".tabs-inline button").forEach(function (b) {
+        b.classList.toggle("active", b === botao);
+      });
+      document.getElementById("aba-gerar").hidden = botao.dataset.aba !== "gerar";
+      document.getElementById("aba-estudar").hidden = botao.dataset.aba !== "estudar";
+      if (botao.dataset.aba === "estudar") carregarEstudo();
+    });
+  });
+
+  document.getElementById("btn-gerar-cards").addEventListener("click", async function () {
+    var botao = this;
+    var caixa = document.getElementById("cards-progresso");
+    botao.disabled = true;
+    caixa.hidden = false;
+    caixa.textContent = "Olhando os conceitos…";
+
+    try {
+      var resp = await C.postStream("/api/notebooks/" + NB_ID + "/cards/gerar", {});
+      await C.readSSE(resp, function (nome, dados) {
+        if (nome === "cards.plano") {
+          caixa.textContent = dados.alvos + " conceito(s) sem cartão para compor…";
+        } else if (nome === "cards.item") {
+          caixa.textContent = dados.indice + " de " + dados.total + ": " +
+            C.escapeHtml(dados.conceito) +
+            (dados.criado ? " ✓" : " — pulado (" + C.escapeHtml(dados.motivo || "") + ")");
+        } else if (nome === "cards.done") {
+          var texto = "Pronto: <b>" + dados.criados + "</b> cartão(ões) criados.";
+          if (dados.alvos !== undefined && dados.criados < (dados.alvos || 0)) {
+            texto += "<br>Os pulados não tinham o que responder no material — e um cartão " +
+              "sem resposta não é cartão.";
+          }
+          caixa.innerHTML = texto;
+          C.toast("Cartões criados.", "ok");
+          carregarEstudo();
+        } else if (nome === "error") {
+          caixa.innerHTML = '<span style="color:var(--danger)">' + C.escapeHtml(dados.message) + "</span>";
+        }
+      });
+    } catch (err) {
+      caixa.innerHTML = '<span style="color:var(--danger)">' + C.escapeHtml(err.message) + "</span>";
+    } finally {
+      botao.disabled = false;
+    }
+  });
+
+  document.getElementById("btn-conflitos").addEventListener("click", async function () {
+    var botao = this;
+    var caixa = document.getElementById("conflitos-progresso");
+    botao.disabled = true;
+    caixa.hidden = false;
+    caixa.textContent = "Procurando conceitos em mais de uma fonte…";
+    estudoUI.conflitos.innerHTML = "";
+
+    var achadas = [];
+    try {
+      var resp = await C.postStream("/api/notebooks/" + NB_ID + "/conflitos", {});
+      await C.readSSE(resp, function (nome, dados) {
+        if (nome === "conflitos.plano") {
+          caixa.textContent = dados.candidatos
+            ? dados.candidatos + " conceito(s) em 2+ fontes para comparar…"
+            : "Nenhum conceito aparece em duas fontes — não há o que comparar.";
+        } else if (nome === "conflitos.item") {
+          caixa.textContent = dados.indice + " de " + dados.total + ": " +
+            C.escapeHtml(dados.conceito) + " — " + C.escapeHtml(dados.motivo);
+          if (dados.conflito) achadas.push(dados);
+        } else if (nome === "conflitos.done") {
+          caixa.innerHTML = dados.achadas
+            ? "<b>" + dados.achadas + "</b> contradição(ões) em " + dados.examinados + " conceito(s) examinado(s)."
+            : "Nenhuma contradição nos " + dados.examinados + " conceito(s) examinado(s). O material está coerente.";
+          pintarConflitos(achadas);
+        } else if (nome === "error") {
+          caixa.innerHTML = '<span style="color:var(--danger)">' + C.escapeHtml(dados.message) + "</span>";
+        }
+      });
+    } catch (err) {
+      caixa.innerHTML = '<span style="color:var(--danger)">' + C.escapeHtml(err.message) + "</span>";
+    } finally {
+      botao.disabled = false;
+    }
+  });
+
+  function pintarConflitos(lista) {
+    if (!lista.length) return;
+    estudoUI.conflitos.innerHTML = lista.map(function (c) {
+      return '<div class="conflito"><b>' + C.escapeHtml(c.conceito) + "</b> — " +
+        C.escapeHtml(c.explicacao || "") +
+        '<div class="lado"><em>uma fonte:</em> "' + C.escapeHtml(c.lado_a) + '"</div>' +
+        '<div class="lado"><em>outra fonte:</em> "' + C.escapeHtml(c.lado_b) + '"</div>' +
+        "</div>";
+    }).join("");
+  }
+
   /* --------------------------------------------------------- start */
 
   (async function init() {

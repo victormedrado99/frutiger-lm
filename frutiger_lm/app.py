@@ -489,10 +489,11 @@ async def listar_conceitos(termo: str = "") -> list[dict[str, Any]]:
 
 @app.get("/api/conceitos/{concept_id}")
 async def ver_conceito(concept_id: str) -> dict[str, Any]:
-    """O conceito, o que se liga a ele e as menções com o trecho de origem."""
+    """O conceito, o que se liga a ele, as menções com o trecho, e as suas notas."""
     dado = knowledge.vizinhanca(concept_id)
     if not dado:
         raise HTTPException(404, "Conceito não encontrado")
+    dado["notas"] = knowledge.notas_do_conceito(concept_id)
     return dado
 
 

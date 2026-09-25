@@ -43,12 +43,37 @@ class CardProposto(BaseModel):
 INSTRUCOES_CARD = """Você escreve cartões de estudo a partir de um trecho de material.
 
 Regras:
-1. A pergunta deve ser respondível por quem estudou o trecho — nem trivial, nem sobre
-   algo que o trecho não diz.
+1. A pergunta tem que se sustentar SOZINHA: quem lê precisa saber de que conceito se
+   trata sem ter o material à vista. Nomeie o conceito na pergunta.
+   Errado: "Qual é o primeiro campo?" — o primeiro campo de quê?
+   Certo: "No quadro CAN, qual é o primeiro campo?"
 2. A resposta usa SOMENTE o que o trecho afirma. Não complete com o que você sabe
-   sobre o assunto: se o trecho não responde, escreva "não está no material".
+   sobre o assunto: se o trecho não responde, escreva exatamente: não está no material.
 3. Nada de "segundo o texto" ou "o trecho diz": o cartão tem que funcionar sozinho.
+4. Pergunta e resposta no mesmo idioma do material.
 """
+
+
+# Quando o modelo devolve isto, é porque o trecho não responde — e aí não há cartão.
+# Aconteceu no material real: 3 de 12 cartões nasceram com esta resposta e iam para a
+# fila de revisão como se ensinassem alguma coisa.
+SEM_RESPOSTA = ("não está no material", "nao esta no material", "não consta no material")
+
+
+def vale_a_pena(proposto: CardProposto) -> tuple[bool, str]:
+    """O cartão tem pergunta e resposta de verdade?
+
+    Separado da criação de propósito: a regra fica testável e o motivo do descarte
+    fica visível na tela, em vez de virar um cartão vazio que ninguém entende.
+    """
+    if not proposto.pergunta.strip():
+        return False, "sem pergunta"
+    resposta = proposto.resposta.strip().casefold()
+    if not resposta:
+        return False, "sem resposta"
+    if any(frase in resposta for frase in SEM_RESPOSTA):
+        return False, "o trecho não responde ao conceito"
+    return True, ""
 
 
 def _mensagens_card(conceito: str, trecho: str, contexto: str) -> list[Any]:
@@ -134,6 +159,20 @@ async def gerar_cards(
             }
             continue
 
+        # Cartão sem resposta não é cartão: o trecho não respondia, o modelo disse
+        # isso, e criar assim mesmo só encheria a fila de revisão de nada.
+        serve, motivo = vale_a_pena(proposto)
+        if not serve:
+            yield {
+                "evento": "cards.item",
+                "indice": indice,
+                "total": len(alvos),
+                "conceito": conceito["name"],
+                "criado": False,
+                "motivo": motivo,
+            }
+            continue
+
         # O card nasce com o trecho ao lado: é o que o torna conferível.
         primeira = mencoes[0]
         card = study.criar_card(
@@ -154,7 +193,7 @@ async def gerar_cards(
             "card_id": card["id"],
         }
 
-    yield {"evento": "cards.done", "criados": criados, **study.resumo(notebook_id)}
+    yield {"evento": "cards.done", "criados": criados, "alvos": len(alvos), **study.resumo(notebook_id)}
 
 
 # --------------------------------------------------------------------------

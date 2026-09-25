@@ -500,9 +500,38 @@
     var corpo = document.getElementById("conceito-corpo");
     corpo.innerHTML =
       '<div class="conceito-secao"><h4>De onde veio</h4>' + blocoDeMencoes(dados.mentions) + "</div>" +
-      '<div class="conceito-secao"><h4>O que se liga</h4>' + blocoDeVizinhos(dados.neighbors) + "</div>";
+      '<div class="conceito-secao"><h4>O que se liga</h4>' + blocoDeVizinhos(dados.neighbors) + "</div>" +
+      '<div class="conceito-secao"><h4>Suas notas</h4>' + blocoDeNotas(dados.notas || []) + "</div>";
 
     if (grafoDesenho) grafoDesenho.selecionar(id);
+  }
+
+  function blocoDeNotas(notas) {
+    var lista = notas.map(function (n) {
+      return '<div class="mencao"><span class="de-onde">' +
+        new Date(n.created_at * 1000).toLocaleDateString("pt-BR") +
+        ' <button class="btn btn-ghost btn-sm" data-apagar-nota="' + n.id + '">apagar</button>' +
+        "</span>" + C.escapeHtml(n.body) + "</div>";
+    }).join("");
+
+    return (lista || "") +
+      '<textarea id="nota-nova" rows="2" placeholder="Uma observação sua sobre este conceito…"' +
+      ' style="width:100%;margin-top:8px"></textarea>' +
+      '<button class="btn btn-sm" id="btn-salvar-nota" style="margin-top:6px">Salvar nota</button>';
+  }
+
+  async function salvarNota() {
+    var caixa = document.getElementById("nota-nova");
+    var texto = caixa ? caixa.value.trim() : "";
+    if (!texto || !conceitoAberto) return;
+    try {
+      await C.api("/api/conceitos/" + conceitoAberto + "/notas", {
+        method: "POST",
+        body: { body: texto },
+      });
+      C.toast("Nota salva.", "ok");
+      abrirConceito(conceitoAberto);
+    } catch (err) { C.toast(err.message, "err"); }
   }
 
   function fecharConceito() {
@@ -511,6 +540,20 @@
   }
 
   document.getElementById("btn-conceito-fechar").addEventListener("click", fecharConceito);
+
+  // A nota é criada e apagada de dentro do painel, que é redesenhado a cada ação —
+  // então os cliques são delegados no corpo, e não presos a cada botão.
+  document.getElementById("conceito-corpo").addEventListener("click", async function (ev) {
+    var apagar = ev.target.closest("[data-apagar-nota]");
+    if (apagar) {
+      try {
+        await C.api("/api/notas/" + apagar.dataset.apagarNota, { method: "DELETE" });
+        abrirConceito(conceitoAberto);
+      } catch (err) { C.toast(err.message, "err"); }
+      return;
+    }
+    if (ev.target.id === "btn-salvar-nota") salvarNota();
+  });
 
   document.getElementById("btn-conceito-renomear").addEventListener("click", async function () {
     if (!conceitoAberto) return;

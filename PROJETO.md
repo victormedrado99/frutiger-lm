@@ -86,6 +86,10 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D045 | As ferramentas de grafo são **globais**, sem escopo: o grafo é a camada que liga | DECIDIDO |
 | D046 | Saída estruturada por `json_mode`, com o formato **no prompt, gerado do Pydantic** | DECIDIDO |
 | D047 | O peso mínimo padrão do desenho é **2**: co-ocorrência de peso 1 não é relação | DECIDIDO |
+| D048 | O painel de estudo são **abas** na coluna que já existe ("Gerar" \| "Estudar") | DECIDIDO |
+| D049 | SRS é um SM-2 **simplificado**; as lacunas são **fatos do grafo**, nunca opinião de modelo | DECIDIDO |
+| D050 | Contradição é comparação sobre o **mesmo conceito**, e exige **os dois trechos** | DECIDIDO |
+| D051 | A citação `[n]` na resposta é o **registro de uso** da fonte | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -727,15 +731,45 @@ filtra por frequência. Há teste.
 4. UI: painel na home e tela do conceito
 5. prova real, no caderno de verdade
 
-### F4 — Painel de estudo  ← PLANO ESCRITO (abaixo)
-- [ ] `study.py`: cards e a repetição espaçada (SM-2 simplificado), lógica pura
-- [ ] `knowledge.py`: `lacunas()` e `fontes_que_nao_contribuiram()` — consultas ao grafo
-- [ ] `engine/estudo.py`: gerar card (do conceito + trecho) e achar contradição
-- [ ] `engine/tools/estudo.py`: o agente respondendo "o que meu material não cobre"
-- [ ] abas no painel direito: **Gerar** | **Estudar**
-- [ ] a revisão do dia (grade: errei · difícil · bom · fácil)
-- [ ] notas por conceito (a tabela `notes` já existe desde o F3)
-- [ ] `source_usage`: a citação `[n]` na resposta vira registro de uso da fonte
+### F4 — Painel de estudo  ← CONCLUÍDA
+- [x] `study.py`: cards e a repetição espaçada (SM-2 simplificado), lógica pura
+- [x] `knowledge.py`: `lacunas()`, `fontes_que_nao_contribuiram()`, `conceitos_por_fonte()`
+- [x] `engine/estudo.py`: gerar card (do conceito + trecho) e achar contradição
+- [x] `engine/tools/estudo.py`: o agente respondendo "o que meu material não cobre"
+- [x] abas no painel direito: **Gerar** | **Estudar** (D048)
+- [x] a revisão do dia (grade: errei · difícil · bom · fácil)
+- [x] notas por conceito (a tabela `notes` já existia desde o F3)
+- [x] `source_usage`: a citação `[n]` na resposta vira registro de uso da fonte (D051)
+- [x] **Critério de pronto:** 9 cartões gerados no caderno real, com o trecho de origem
+      no verso; revisão pelo painel; lacunas conferíveis na fonte; o agente responde
+      "o que meu material não cobre" pelos fatos do grafo
+
+**Resultado honesto da detecção de contradições, no material real:** examinou 5
+conceitos que aparecem em duas ou mais fontes (CAN, DTC, ISO 15765, OBD, Read Freeze
+Frame Data) e **achou 0**. Um detector que se recusa a inventar devolvendo zero é bom
+sinal, mas o **caminho positivo não está provado com dado real** — só com fake, nos
+testes. Para provar, seria preciso um material com duas fontes que de fato conflitam.
+
+### Os dois defeitos que só o uso real mostrou
+
+**1. Cartão sem resposta.** Na primeira geração de verdade, 3 de 12 cartões nasceram
+com *"não está no material"* como resposta. O modelo foi **honesto** — o trecho não
+respondia ao conceito — e o código criava o cartão assim mesmo. Um cartão sem resposta
+não ensina nada e ainda ocupa a fila de revisão.
+Corrigido com `vale_a_pena()`: pergunta vazia, resposta vazia ou resposta que diz que
+o material não responde → o cartão **não nasce**, e o motivo aparece na tela. Na
+regeneração, os mesmos 3 conceitos foram pulados com o motivo, e saíram 9 cartões
+úteis em vez de 12 com 3 inúteis.
+
+**2. Pergunta que não se sustenta sozinha.** A primeira leva saiu com fronts como
+*"Qual é o primeiro campo?"* — o primeiro campo **de quê?** Um cartão ambíguo é pior
+que nenhum, porque a pessoa marca "bom" sem ter recuperado nada. O prompt passou a
+exigir que a pergunta **nomeie o conceito**. Na segunda leva:
+*"In the frame structure, where does the 11-bit identifier appear?"*.
+
+E fica registrado o que **não** foi resolvido: numa transcrição de podcast, os trechos
+vêm sem contexto suficiente (*"tem que ser Java"*) e o cartão sai raso. É o mesmo
+problema da taxa de descarte na extração, e continua pendente.
 
 ---
 
@@ -919,33 +953,32 @@ O que "me atualize em cada decisão de arquitetura" significa na prática:
 
 ---
 
-## 12. Estado atual (2026-09-25 — F1, F2 e F3 concluídas)
+## 12. Estado atual (2026-09-25 — F1 a F4 concluídas)
 
-Funcionando, com **209 testes** e ruff limpo:
+Funcionando, com **266 testes** e ruff limpo:
 
 - cadernos, fontes (link, PDF, YouTube, texto), chat com streaming e citação,
   7 templates de output, UI em três painéis com tema Frutiger Aero
-- **chat do caderno** e **chat global** (o que enxerga todos os cadernos e liga o
-  conhecimento entre eles), com as mesmas ferramentas e escopos diferentes
+- **chat do caderno** e **chat global**, com as mesmas ferramentas e escopos diferentes
 - **grafo de conhecimento ancorado**: 102 conceitos e 156 menções no caderno de
   verdade, cada menção com o trecho literal de origem; painel na home com filtros,
-  tela do conceito e edição (renomear, mesclar, apagar)
-- motor: **agente LangGraph próprio**, dentro do app. O Hermes saiu do código, da
-  configuração, do banco e do unit do systemd
-- o chat responde com o modelo que **você** configura (botão "Modelo"); hoje,
-  `deepseek-v4-flash`
-- `frutiger-lm.service` (app, 8765) ativo e habilitado, sem depender de outro
-  serviço — `NRestarts=0`
+  tela do conceito e edição
+- **painel de estudo**: 9 cartões com o trecho no verso, revisão com quatro notas,
+  lacunas conferíveis (sem opinião de modelo), contradições entre fontes e o registro
+  de qual fonte cada resposta citou
+- motor: **agente LangGraph próprio**, dentro do app. O Hermes saiu de tudo
+- o chat responde com o modelo que **você** configura; hoje, `deepseek-v4-flash`
+- `frutiger-lm.service` (app, 8765) ativo e habilitado — `NRestarts=0`
 
 Pendências conhecidas, e nenhuma bloqueia o uso:
 
+- **a transcrição de podcast**: 31 de 47 trechos descartados na extração, e cartões
+  rasos porque o trecho vem sem contexto. É o mesmo problema nas duas pontas
 - "virar conhecimento" numa conclusão do chat (o único item do F3 que ficou de fora)
 - `web_search` não existe (D036, adiada com critério)
 - busca global por FTS5 (para a pessoa procurar; o agente já procura)
-- **numa fonte longa e falada (transcrição de podcast), 31 de 47 trechos foram
-  descartados** — o modelo parafraseia em vez de copiar, e a conferência recusa. O
-  mecanismo funciona (é ele que impede o grafo de virar ficção), mas vale investigar
-  se o prompt do extrator pode ser mais firme sobre literalidade.
+- a detecção de contradições teve resultado zero no material real — o caminho positivo
+  está provado só com fake, não com dado
 
 Verificado, sobre o stack adotado:
 

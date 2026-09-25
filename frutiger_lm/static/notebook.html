@@ -57,15 +57,41 @@
       </div>
     </section>
 
-    <!-- ======================= DIREITA: OUTPUTS ======================= -->
+    <!-- ======================= DIREITA: GERAR / ESTUDAR ======================= -->
     <aside class="pane pane-right" data-pane="right">
       <div class="pane-head">
-        <h2>Gerar</h2>
+        <h2>Painel</h2>
+        <div class="spacer"></div>
+        <div class="tabs-inline">
+          <button data-aba="gerar" class="active">Gerar</button>
+          <button data-aba="estudar">Estudar</button>
+        </div>
       </div>
-      <div class="pane-body scroll">
+
+      <div class="pane-body scroll" id="aba-gerar">
         <div class="tpl-grid" id="templates"></div>
         <div class="section-label">Salvos</div>
         <div id="outputs"></div>
+      </div>
+
+      <div class="pane-body scroll" id="aba-estudar" hidden>
+        <div class="estudo-resumo" id="estudo-resumo"></div>
+
+        <div class="section-label">Revisar agora</div>
+        <div id="revisao"></div>
+        <button class="btn" id="btn-gerar-cards" style="width:100%">Gerar cartões dos conceitos</button>
+        <div class="extrair-progresso" id="cards-progresso" hidden></div>
+
+        <div class="section-label">O que o material não cobre</div>
+        <div id="lacunas"></div>
+
+        <div class="section-label">Confrontar as fontes</div>
+        <button class="btn" id="btn-conflitos" style="width:100%">Procurar contradições</button>
+        <div class="extrair-progresso" id="conflitos-progresso" hidden></div>
+        <div id="conflitos"></div>
+
+        <div class="section-label">O que cada fonte deu</div>
+        <div id="fontes-estudo"></div>
       </div>
     </aside>
 
