@@ -77,8 +77,95 @@
         return aresta.a && aresta.b;
       });
 
+    /* ---- as ilhas ------------------------------------------------------------
+
+       No grafo geral, cada caderno é uma ILHA. A regra é de uma linha só: cada nó é
+       puxado para o centro de **cada** caderno dele.
+
+       - Um conceito que só aparece num caderno fica na ilha daquele caderno.
+       - Um conceito que aparece em dois é puxado para os DOIS centros ao mesmo tempo
+         e assenta ENTRE as ilhas.
+
+       Ou seja: a ponte não tem caso especial. Ela é o resultado da soma das forças, e
+       é por isso que o desenho mostra o que liga duas áreas sem eu precisar desenhar
+       uma seta. A gravidade global (para o centro do quadro) saiu de cena: quem
+       segura o desenho agora são as ilhas, e o encaixe na tela é da vista.
+    */
+    var ilhas = {};
+    var titulosDasIlhas = [];
+
+    /* Quando a vista está presa a UM caderno, não existem ilhas: o grafo É aquele
+       caderno, e volta a ser o círculo único de sempre.
+
+       Sem esta trava, um conceito-ponte continuava dizendo que pertence a dois cadernos
+       — o que é VERDADE no banco — e o desenho abria duas ilhas dentro de uma vista de
+       um caderno só, com dois rótulos, sendo que um deles nem estava ali. Quem sabe o
+       escopo é a interface; ela é que diz. */
+    var cadernoFoco = opt.cadernoFoco || null;
+
+    function montarIlhas() {
+      if (cadernoFoco) {
+        titulosDasIlhas = [cadernoFoco];
+        ilhas = {};
+        ilhas[cadernoFoco] = { x: largura / 2, y: altura / 2 };
+        return;
+      }
+
+      titulosDasIlhas = [];
+      nos.forEach(function (no) {
+        (no.cadernos || []).forEach(function (t) {
+          if (titulosDasIlhas.indexOf(t) < 0) titulosDasIlhas.push(t);
+        });
+      });
+      titulosDasIlhas.sort();
+
+      var cx = largura / 2;
+      var cy = altura / 2;
+      ilhas = {};
+      if (!titulosDasIlhas.length) return;
+      if (titulosDasIlhas.length === 1) {
+        // Um caderno só não forma ilha: o grafo É ele. O centro é o do quadro, que é
+        // o comportamento redondo de sempre.
+        ilhas[titulosDasIlhas[0]] = { x: cx, y: cy };
+        return;
+      }
+
+      /* Os centros numa roda, e o raio tem que VENCER o tamanho das ilhas.
+
+         O raio de uma ilha cresce com a raiz do número de nós (é o mesmo equilíbrio
+         entre gravidade e repulsão do círculo). Com um raio fixo, uma ilha de trinta
+         nós engolia uma de quatro — a pequena ficava dentro da grande. Fazendo o anel
+         crescer com a raiz do total, a separação acompanha o tamanho das ilhas.
+
+         O valor absoluto não importa: a vista encaixa o conjunto na tela depois. O que
+         importa é a razão entre a separação e o tamanho de cada ilha. */
+      var raio = Math.sqrt(nos.length) * 34 + 40;
+      titulosDasIlhas.forEach(function (t, i) {
+        var ang = (i / titulosDasIlhas.length) * Math.PI * 2 - Math.PI / 2;
+        ilhas[t] = { x: cx + Math.cos(ang) * raio, y: cy + Math.sin(ang) * raio };
+      });
+    }
+
+    function alvoDoNo(no) {
+      var meus = (no.cadernos || []).filter(function (t) {
+        return ilhas[t] !== undefined;
+      });
+      if (!meus.length) return { x: largura / 2, y: altura / 2 };
+      var sx = 0;
+      var sy = 0;
+      meus.forEach(function (t) {
+        sx += ilhas[t].x;
+        sy += ilhas[t].y;
+      });
+      return { x: sx / meus.length, y: sy / meus.length };
+    }
+
+    montarIlhas();
+
     var selecionado = null;
     var destacado = null;
+    var destacadoChip = null;
+    var chips = [];
     var arrastando = null;
     var inicioDoArraste = null;
     var arrastou = false;
@@ -160,10 +247,12 @@
         aresta.b.vy -= uy * forca;
       });
 
-      // Gravidade ao centro: é ela que fecha o círculo.
+      // Gravidade de ilha: cada nó é puxado para o centro de cada caderno dele. O
+      // conceito que vive em dois é puxado para os dois e assenta entre eles.
       nos.forEach(function (no) {
-        no.vx += (cx - no.x) * GRAVIDADE;
-        no.vy += (cy - no.y) * GRAVIDADE;
+        var alvo = alvoDoNo(no);
+        no.vx += (alvo.x - no.x) * GRAVIDADE;
+        no.vy += (alvo.y - no.y) * GRAVIDADE;
       });
 
       /* Não existe mais limite de raio.
@@ -368,6 +457,104 @@
         ctx.fillStyle = r.foco ? "#ffffff" : "#cfe9f2";
         ctx.fillText(r.nome, r.tx, r.ty);
       });
+
+      desenharChips();
+    }
+
+    /* ---- os rótulos de ilha ---------------------------------------------------
+
+       Cada ilha ganha o nome do caderno, e o nome é um BOTÃO: é por ele que se entra
+       no grafo daquele caderno. Com um caderno só não existe ilha — e aí o rótulo
+       seria ruído, então ele não aparece.
+
+       Desenhado depois de tudo (inclusive do texto dos nós) porque é o controle da
+       tela: nada pode passar por cima dele.
+    */
+    function desenharChips() {
+      chips = [];
+      if (cadernoFoco || titulosDasIlhas.length < 2) return;
+
+      titulosDasIlhas.forEach(function (titulo) {
+        var caixa = caixaDaIlha(titulo);
+        if (!caixa) return;
+
+        ctx.font = "600 11.5px 'Segoe UI', system-ui, sans-serif";
+        var larg = Math.min(largura - 8, ctx.measureText(titulo).width + 26);
+        var alturaChip = 21;
+        var x = Math.max(4, Math.min(largura - larg - 4, caixa.x - larg / 2));
+        var y = Math.max(4, caixa.topo - alturaChip - 9);
+
+        var cor = corDoCaderno([titulo]);
+        var aceso = !destacadoChip || destacadoChip === titulo;
+
+        ctx.globalAlpha = aceso ? 1 : 0.35;
+        caminhoArredondado(x, y, larg, alturaChip, 10);
+        ctx.fillStyle = "rgba(6, 22, 32, 0.85)";
+        ctx.fill();
+        ctx.strokeStyle = cor;
+        ctx.lineWidth = destacadoChip === titulo ? 2 : 1.3;
+        ctx.stroke();
+
+        ctx.fillStyle = cor;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(titulo, x + larg / 2, y + alturaChip / 2 + 0.5);
+        ctx.globalAlpha = 1;
+
+        chips.push({ titulo: titulo, x: x, y: y, w: larg, h: alturaChip });
+      });
+    }
+
+    function caminhoArredondado(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    }
+
+    function caixaDaIlha(titulo) {
+      /* Só os conceitos EXCLUSIVOS deste caderno.
+
+         Um conceito-ponte pertence às duas ilhas, e incluí-lo na conta esticava a
+         caixa de uma delas até o meio do caminho — era o que punha o rótulo da ilha
+         pequena dentro da ilha grande. Se um caderno tiver só pontes (caso raro), aí
+         sim vale a lista inteira, senão ele ficaria sem rótulo nenhum. */
+      var meus = function (no) {
+        return (no.cadernos || []).indexOf(titulo) >= 0;
+      };
+      var exclusivos = nos.filter(function (no) {
+        return (no.cadernos || []).length === 1 && meus(no);
+      });
+      var usar = exclusivos.length ? exclusivos : nos.filter(meus);
+
+      var minX = Infinity;
+      var minY = Infinity;
+      var maxX = -Infinity;
+      var achou = false;
+      usar.forEach(function (no) {
+        if (no._sx === undefined) return;
+        achou = true;
+        minX = Math.min(minX, no._sx - no._sr);
+        minY = Math.min(minY, no._sy - no._sr);
+        maxX = Math.max(maxX, no._sx + no._sr);
+      });
+      if (!achou) return null;
+      return { x: (minX + maxX) / 2, topo: minY };
+    }
+
+    function chipNoPonto(x, y) {
+      for (var i = 0; i < chips.length; i++) {
+        var c = chips[i];
+        if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) return c;
+      }
+      return null;
     }
 
     function animar() {
@@ -428,23 +615,35 @@
         pintar();
         return;
       }
-      var no = noPonto(p.x, p.y);
-      if (no !== destacado) {
+
+      // O rótulo de ilha tem prioridade sobre o nó: ele é o controle de navegação, e
+      // é a ele que o ponteiro vai quando passa por cima.
+      var chip = chipNoPonto(p.x, p.y);
+      var no = chip ? null : noPonto(p.x, p.y);
+
+      if (chip !== destacadoChip || no !== destacado) {
+        destacadoChip = chip ? chip.titulo : null;
         destacado = no;
-        canvas.style.cursor = no ? "pointer" : "default";
+        canvas.style.cursor = chip || no ? "pointer" : "default";
         pintar();
       }
     };
 
     canvas.onmouseleave = function () {
-      if (destacado) {
+      if (destacado || destacadoChip) {
         destacado = null;
+        destacadoChip = null;
         pintar();
       }
     };
 
     canvas.onmousedown = function (ev) {
       var p = posicao(ev);
+      // Rótulo de ilha abre o caderno — e não arrasta nem abre conceito.
+      if (chipNoPonto(p.x, p.y)) {
+        ev.preventDefault();
+        return;
+      }
       var no = noPonto(p.x, p.y);
       if (no) {
         arrastando = no;
@@ -454,7 +653,17 @@
       }
     };
 
-    global.addEventListener("mouseup", function () {
+    global.addEventListener("mouseup", function (ev) {
+      // O clique no rótulo de ilha é o que entra no caderno.
+      if (chips.length) {
+        var r = canvas.getBoundingClientRect();
+        var chip = chipNoPonto(ev.clientX - r.left, ev.clientY - r.top);
+        if (chip && opt.aoEntrarNoCaderno) {
+          opt.aoEntrarNoCaderno(chip.titulo);
+          return;
+        }
+      }
+
       if (!arrastando) return;
       var tocado = arrastando;
       arrastando = null;
@@ -499,6 +708,7 @@
         canvas.width = Math.round(l * dpr);
         canvas.height = Math.round(a * dpr);
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        montarIlhas(); // as ilhas dependem do tamanho do quadro
         reaquecer();
         pintar();
       },

@@ -41,22 +41,20 @@
         <div class="grafo-head">
           <div class="grafo-linha">
             <input type="search" id="grafo-busca" placeholder="buscar conceito…" autocomplete="off">
-            <select id="grafo-caderno"></select>
-          </div>
-          <div class="grafo-linha grafo-linha-controles">
-            <span class="grafo-stats" id="grafo-stats"></span>
-            <div class="spacer"></div>
             <label class="grafo-toggle" title="Só os conceitos DO material: os que aparecem mais de uma vez, ou que atravessam cadernos. Os citados uma única vez são menção de passagem — num material grande eles são a maioria, e são eles que transformam o desenho num novelo. Desmarque para ver todos.">
               <input type="checkbox" id="grafo-principais" checked> principais
             </label>
-            <label class="grafo-toggle" title="Mostra só as ligações que o material afirma, com trecho de origem. As pontilhadas são apenas conceitos que aparecem no mesmo trecho.">
-              <input type="checkbox" id="grafo-sem-cooc"> afirmadas
-            </label>
+          </div>
+          <div class="grafo-linha">
+            <button class="btn btn-sm" id="grafo-voltar" hidden
+                    title="Voltar ao grafo geral, com todos os cadernos">← Voltar</button>
+            <span class="grafo-stats" id="grafo-stats"></span>
           </div>
         </div>
-        <div class="grafo-legenda" id="grafo-legenda"></div>
         <div class="grafo-area">
-          <canvas id="grafo-canvas"></canvas>
+          <!-- A explicação do desenho vive no `title` do quadro: ela informa sem ocupar
+               uma linha, e a linha valia 59px de desenho. -->
+          <canvas id="grafo-canvas" title="Linha cheia = ligação que o material afirma, com trecho de origem. Pontilhada = dois conceitos que aparecem juntos no mesmo trecho. Tamanho do nó = quantas vezes o conceito aparece. Cor = caderno."></canvas>
           <div class="grafo-vazio" id="grafo-vazio" hidden></div>
         </div>
       </div>

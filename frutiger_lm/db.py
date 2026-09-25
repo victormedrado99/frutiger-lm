@@ -336,15 +336,39 @@ def _apagar_arquivo(caminho: str) -> None:
 
 
 def delete_notebook(notebook_id: str) -> None:
-    """Apaga o caderno **e os arquivos dele**.
+    """Apaga o caderno, os arquivos dele **e os conceitos que ficaram sós**.
 
     Os arquivos saem aqui, e não na rota, por um motivo aprendido na prática:
     apagar um caderno é uma operação só, e deixá-la partida entre camadas garante
     que algum chamador — script, rotina futura, código de limpeza — apague as
     linhas e deixe a pasta no disco. Foi exatamente o que aconteceu.
+
+    Os conceitos órfãos saem pelo mesmo motivo. Um conceito **não pertence** a um
+    caderno: ele vive nas menções, e apagar o caderno leva as menções dele (o
+    `ON DELETE CASCADE` cuida disso). O nome, porém, ficava — um conceito que não
+    aparece no grafo, não é alcançável na interface e nem passa pelo corte dos
+    "principais". Resto assim não é inofensivo: ele suja a contagem (apareceu como
+    "76 ocultos" onde deveriam ser 72, depois de apagar um caderno de teste).
+
+    A exceção é o conceito que a pessoa anotou: uma nota é motivo para o nome ficar,
+    mesmo sem menção. E as arestas que sobraram penduradas nele saem antes, porque um
+    `DELETE` em `concepts` com `ON DELETE CASCADE` levaria as arestas junto — mas o
+    conceito só não é apagado enquanto elas existirem, e aí nada sairia.
     """
+    sem_mencao = (
+        "SELECT id FROM concepts "
+        "WHERE id NOT IN (SELECT concept_id FROM mentions WHERE concept_id IS NOT NULL)"
+    )
     with connect() as conn:
         conn.execute("DELETE FROM notebooks WHERE id = ?", (notebook_id,))
+        conn.execute(
+            f"DELETE FROM edges WHERE a_id IN ({sem_mencao}) OR b_id IN ({sem_mencao})"
+        )
+        conn.execute(
+            """DELETE FROM concepts
+               WHERE id NOT IN (SELECT concept_id FROM mentions WHERE concept_id IS NOT NULL)
+                 AND id NOT IN (SELECT concept_id FROM notes WHERE concept_id IS NOT NULL)"""
+        )
     shutil.rmtree(settings.notebook_dir(notebook_id), ignore_errors=True)
 
 

@@ -34,7 +34,7 @@
       subtitle.textContent = notebooks.length
         ? notebooks.length + (notebooks.length === 1 ? " caderno" : " cadernos")
         : "Nenhum caderno ainda.";
-      preencherFiltroDeCaderno(notebooks);
+      guardarCadernos(notebooks);
       carregarGrafo();
     } catch (err) {
       subtitle.textContent = "Erro ao carregar: " + err.message;
@@ -339,11 +339,9 @@
   var grafoUI = {
     canvas: document.getElementById("grafo-canvas"),
     stats: document.getElementById("grafo-stats"),
-    legenda: document.getElementById("grafo-legenda"),
+    voltar: document.getElementById("grafo-voltar"),
     vazio: document.getElementById("grafo-vazio"),
     busca: document.getElementById("grafo-busca"),
-    caderno: document.getElementById("grafo-caderno"),
-    semCooc: document.getElementById("grafo-sem-cooc"),
     principais: document.getElementById("grafo-principais"),
   };
 
@@ -360,28 +358,6 @@
   var grafoDesenho = null;
   var conceitoAberto = null;
   var PESO_MINIMO_PADRAO = 2;
-
-  function legendaDoGrafo(dados) {
-    var afirmadas = (dados.edges || []).filter(function (e) { return e.kind === "explicit"; }).length;
-    var cooc = (dados.edges || []).length - afirmadas;
-    var pontes = (dados.nodes || []).filter(function (n) { return n.ponte; }).length;
-
-    // Legenda curta de propósito: cada linha dela é altura roubada do desenho, e a
-    // barra é estreita. O que não couber em duas linhas vai para o `title` da linha.
-    return [
-      '<span title="O tamanho do nó é quantas vezes o conceito aparece no material">' +
-        "<b>●</b> tamanho = vezes que aparece</span>",
-      '<span title="Linha cheia: o material afirma a ligação e há trecho de origem"><b>—</b> cheia = o material afirma (' +
-        afirmadas + ")</span>",
-      '<span title="Pontilhada: os dois conceitos só aparecem juntos no mesmo trecho, sem afirmação"><b>···</b> pontilhada = juntos ' +
-        PESO_MINIMO_PADRAO + "×+ (" + cooc + ")</span>",
-      pontes
-        ? '<span title="Anel: o conceito aparece em mais de um caderno — é a ponte entre áreas"><b>◯</b> anel = 2+ cadernos (' +
-          pontes + ")</span>"
-        : "",
-      '<span title="A cor do nó indica de qual caderno o conceito veio"><b>cor</b> = caderno</span>',
-    ].join("");
-  }
 
   function desenharGrafo(dados) {
     var total = (dados.nodes || []).length;
@@ -414,25 +390,28 @@
             "de cada coisa.</div>"
           : "<div>Nenhum caderno ainda. Crie um, adicione fontes e extraia os conceitos.</div>";
       }
-      grafoUI.legenda.innerHTML = "";
       return;
     }
 
     grafoUI.canvas.hidden = false;
     grafoUI.vazio.hidden = true;
-    grafoUI.legenda.innerHTML = legendaDoGrafo(dados);
 
     if (grafoDesenho) grafoDesenho.parar();
     grafoDesenho = window.GrafoFrutiger.desenhar(grafoUI.canvas, dados, {
       aoClicar: function (id) { abrirConceito(id); },
+      // O rótulo de uma ilha é por onde se entra no caderno. O desenho me dá o
+      // TÍTULO; a API quer o id, e o mapa título→id vem da lista de cadernos.
+      aoEntrarNoCaderno: function (titulo) { entrarNoCaderno(titulo); },
+      // Com o escopo preso a um caderno não há ilha a desenhar: o grafo é ele. Quem
+      // sabe disso é esta camada, não o desenho.
+      cadernoFoco: escopoTitulo || null,
     });
   }
 
   async function carregarGrafo() {
     var parametros = ["peso_minimo=" + PESO_MINIMO_PADRAO];
     if (grafoUI.principais.checked) parametros.push("principalmente=1");
-    if (grafoUI.caderno.value) parametros.push("notebook_id=" + encodeURIComponent(grafoUI.caderno.value));
-    if (grafoUI.semCooc.checked) parametros.push("sem_co_ocorrencia=true");
+    if (escopoAtual) parametros.push("notebook_id=" + encodeURIComponent(escopoAtual));
 
     var dados;
     try {
@@ -447,31 +426,47 @@
     desenharGrafo(dados);
   }
 
-  /* O grafo abre no contexto de UM caderno, não em todos misturados.
+  /* ------------------------------------------------ entrar e sair de um caderno
 
-     A mistura é a exceção: serve para ver as pontes entre áreas, e por isso continua
-     na lista. O normal é estar estudando um caderno e querer o mapa DELE — e um mapa
-     de tudo é justamente onde os conceitos de duas matérias viram um borrão só.
+     Em repouso o grafo é o GERAL: uma ilha por caderno, com as pontes entre as que se
+     tocam (um conceito que vive em dois cadernos fica entre as duas ilhas — é o
+     desenho da ligação, não uma seta). Entrar num caderno é clicar no rótulo da ilha
+     dele; sair é o `Voltar`, que só existe quando se está dentro.
 
-     "Já escolheu" é uma flag, e não o valor do campo: `""` é ao mesmo tempo "ainda não
-     escolhi" e "escolhi todos", e sem separar os dois a escolha explícita de "todos"
-     seria desfeita na recarga seguinte. */
-  var escopoEscolhido = false;
+     O `<select>` de caderno saiu: com o clique na ilha e o voltar, ele era um segundo
+     controle para o mesmo estado — e a cabeça desta barra é estreita, cada linha ali
+     é altura roubada do desenho.
+  */
+  var escopoAtual = "";
+  var escopoTitulo = "";
+  var idPorTitulo = {};
 
-  function preencherFiltroDeCaderno(cadernos) {
-    grafoUI.caderno.innerHTML = '<option value="">todos os cadernos</option>' +
-      cadernos.map(function (n) {
-        return '<option value="' + C.escapeHtml(n.id) + '">' + C.escapeHtml(n.title) + "</option>";
-      }).join("");
+  function guardarCadernos(cadernos) {
+    idPorTitulo = {};
+    cadernos.forEach(function (n) {
+      idPorTitulo[n.title] = n.id;
+    });
+  }
 
-    // A ordem é a de criação: a escolha padrão é estável entre recargas.
-    var escolha = escopoEscolhido
-      ? grafoUI.caderno.value
-      : (cadernos.length ? cadernos[0].id : "");
-    grafoUI.caderno.value = escolha;
-    // Se o caderno escolhido deixou de existir, o `<select>` fica sem valor: volta
-    // para "todos", que sempre existe.
-    if (grafoUI.caderno.value !== escolha) grafoUI.caderno.value = "";
+  function entrarNoCaderno(titulo) {
+    var id = idPorTitulo[titulo];
+    if (!id || id === escopoAtual) return;
+    escopoAtual = id;
+    escopoTitulo = titulo;
+    mostrarVoltar();
+    carregarGrafo();
+  }
+
+  function voltarAoGeral() {
+    if (!escopoAtual) return;
+    escopoAtual = "";
+    escopoTitulo = "";
+    mostrarVoltar();
+    carregarGrafo();
+  }
+
+  function mostrarVoltar() {
+    grafoUI.voltar.hidden = !escopoAtual;
   }
 
   /* ------------------------------------------------------------ o conceito */
@@ -700,11 +695,7 @@
 
   medirTopbar();
 
-  grafoUI.caderno.addEventListener("change", function () {
-    escopoEscolhido = true;
-    carregarGrafo();
-  });
-  grafoUI.semCooc.addEventListener("change", carregarGrafo);
+  grafoUI.voltar.addEventListener("click", voltarAoGeral);
   grafoUI.principais.addEventListener("change", carregarGrafo);
 
   var buscaPendente = null;

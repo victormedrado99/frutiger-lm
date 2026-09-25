@@ -176,6 +176,19 @@ frutiger_lm/
   calculado) não escuta o `resize`, ele fica com o tamanho de quando nasceu e desenha
   para uma caixa que já não existe. Com espera de ~140ms, senão o arraste da janela
   recompõe a simulação dezenas de vezes por segundo.
+- **O desenho não sabe em que escopo está — e não deve adivinhar.** Um conceito-ponte
+  pertence a dois cadernos NO BANCO (é verdade), então ao desenhar só um caderno o
+  código achava que havia duas ilhas: abria dois rótulos, sendo que um deles nem estava
+  na vista. Quem sabe o escopo é a interface, e ela é que diz (`cadernoFoco`).
+  **Regra geral: o que a tela sabe, a tela passa; o desenho não deduz do dado.**
+- **Um conceito não pertence a um caderno — ele vive nas MENÇÕES.** Apagar o caderno
+  leva as menções pelo cascade e deixa o NOME: um conceito invisível, inalcançável, que
+  não passa pelo corte dos "principais" mas suja toda contagem (`estatisticas`,
+  `ocultos`, `vocabulario`). Apareceu como "76 ocultos" onde deviam ser 72.
+  `delete_notebook` recolhe o que ficou sem menção nenhuma.
+- **`registrar_mencao` deduplica** menção idêntica (mesmo conceito + fonte + trecho).
+  Repetir a mesma frase N vezes dá UMA menção — o que importa ao montar dado de teste à
+  mão: para um conceito ter 2 menções, são precisos 2 trechos diferentes.
 
 ## Validar com o modelo real
 

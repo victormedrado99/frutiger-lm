@@ -174,6 +174,80 @@ def test_o_card_guarda_o_proprio_trecho():
     assert "linha K" in relido["excerpt"], "perdeu a prova ao lado do verso"
 
 
+def test_apagar_o_caderno_recolhe_os_conceitos_que_ficaram_sos():
+    """Um conceito vive nas menções; sem menção nenhuma, é resto — e resto suja a conta."""
+    nb = caderno()
+    src = asyncio.run(ingest.add_source(nb, kind="text", text=TEXTO, title="Fonte"))
+    so = knowledge.achar_ou_criar("KWP2000")
+    knowledge.registrar_mencao(
+        so["id"],
+        notebook_id=nb,
+        trecho="O protocolo KWP2000 roda sobre a linha K",
+        referencia=TEXTO,
+        source_id=src["id"],
+    )
+    conhecimento = knowledge.achar_ou_criar("ISO 14230")
+    knowledge.registrar_mencao(
+        conhecimento["id"],
+        notebook_id=nb,
+        trecho="O ISO 14230 descreve o KWP2000",
+        referencia=TEXTO,
+        source_id=src["id"],
+    )
+    knowledge.ligar_explicito(
+        so["id"], conhecimento["id"],
+        trecho="O ISO 14230 descreve o KWP2000", referencia=TEXTO, quem="modelo",
+    )
+
+    db.delete_notebook(nb)
+
+    assert knowledge.get_conceito(so["id"]) is None, "o conceito ficou sem menção e não foi recolhido"
+    assert knowledge.get_conceito(conhecimento["id"]) is None
+    assert knowledge.estatisticas()["conceitos"] == 0
+    assert knowledge.estatisticas()["arestas"] == 0
+
+
+def test_apagar_um_caderno_nao_dana_o_grafo_do_outro():
+    """O caso que mais importa: o que é compartilhado sobrevive ao caderno que sai.
+
+    Um conceito com menção nos DOIS cadernos não pode ser recolhido quando um deles é
+    apagado — ele continua vivo no outro, e é justamente a ponte entre os dois.
+
+    (A variante "preserva o conceito que tem nota" não faz sentido como teste: a nota
+    tem `notebook_id` e sai junto com o caderno pelo cascade, então ela nunca chega a
+    proteger nada. A condição fica no código porque uma nota SEM caderno — criada por
+    outro caminho — deve segurar o nome.)
+    """
+    a = caderno("A")
+    b = caderno("B")
+    fonte_a = asyncio.run(ingest.add_source(a, kind="text", text=TEXTO, title="Fonte A"))
+    fonte_b = asyncio.run(ingest.add_source(b, kind="text", text=TEXTO, title="Fonte B"))
+
+    compartilhado = knowledge.achar_ou_criar("KWP2000")
+    for nb, src in ((a, fonte_a), (b, fonte_b)):
+        knowledge.registrar_mencao(
+            compartilhado["id"],
+            notebook_id=nb,
+            trecho="O protocolo KWP2000 roda sobre a linha K",
+            referencia=TEXTO,
+            source_id=src["id"],
+        )
+    so_do_a = knowledge.achar_ou_criar("Turbina")
+    knowledge.registrar_mencao(
+        so_do_a["id"],
+        notebook_id=a,
+        trecho="O protocolo KWP2000 roda sobre a linha K",
+        referencia=TEXTO,
+        source_id=fonte_a["id"],
+    )
+
+    db.delete_notebook(a)
+
+    assert knowledge.get_conceito(compartilhado["id"]) is not None, "dano no grafo do outro caderno"
+    assert knowledge.get_conceito(so_do_a["id"]) is None, "o conceito que só existia no apagado ficou"
+    assert knowledge.estatisticas()["conceitos"] == 1
+
+
 def test_apagar_o_caderno_leva_os_cards():
     nb = caderno()
     study.criar_card(nb, front="p", back="r")
