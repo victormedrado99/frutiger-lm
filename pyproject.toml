@@ -41,6 +41,12 @@ ignore = [
     "B008",  # Body()/File() como default é o idioma do FastAPI
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# fake.py é dublê de teste: assinaturas precisam casar com as da lib, e
+# `tool_choice` é keyword-only (não dá para renomear nem prefixar com _).
+# Argumento não usado ali é o esperado, não descuido.
+"frutiger_lm/engine/fake.py" = ["ARG002"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

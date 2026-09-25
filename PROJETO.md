@@ -72,6 +72,9 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D031 | Config de modelo vem da UI; `.env` (`LLM_AGENT`) é o fallback de quem prefere versionar | DECIDIDO |
 | D032 | Config de modelo incompleta é **recusada** com o que falta nomeado — validar antes de gravar | DECIDIDO |
 | D033 | O checkpointer vive em `checkpoints.db`, arquivo **próprio**, não no banco do app | DECIDIDO |
+| D034 | Ferramenta é **presa ao caderno** na construção; o `notebook_id` não é parâmetro | DECIDIDO |
+| D035 | Ferramenta que lê arquivo **limita a própria saída** e diz onde parou | DECIDIDO |
+| D036 | Provedor de `web_search` do agente (SearxNG próprio? API paga? DuckDuckGo?) | ABERTO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -209,6 +212,39 @@ Dois motivos, e o primeiro é o que importa:
 
 O preço é um arquivo a mais para fazer backup. Aceito: são dois arquivos por
 instalação, e a separação é o que impede um problema de virar o outro.
+
+### D034 — a ferramenta é presa ao caderno
+
+```python
+ferramentas = ferramentas_de_leitura(notebook_id)   # o id entra AQUI
+```
+
+O `notebook_id` **não** é parâmetro de nenhuma ferramenta. Três razões, e a
+segunda é a que justifica a decisão:
+
+1. O modelo não tem como errar o id.
+2. O modelo **não consegue** ler as fontes de outro caderno. É isolamento
+   estrutural, não confiança no comportamento do modelo — e há teste dos dois
+   lados: na chamada direta e dentro do laço do agente.
+3. O schema fica menor. Schema menor melhora a escolha de ferramenta (D025).
+
+Detalhe relacionado: quando o id pertence a outro caderno, a ferramenta responde
+"não existe fonte com esse id" em vez de "existe, mas é de outro caderno". Para
+quem pergunta, é como se não existisse — e isso evita que a ferramenta vire
+oráculo de ids alheios.
+
+### D035 — ferramenta que lê arquivo limita a saída
+
+Uma ferramenta que pode despejar 400 mil caracteres no contexto quebra o turno, e
+o modelo não tem como prever isso. Então:
+
+- `ler_fonte` corta em pedaços (padrão 8k, teto 20k) e o cabeçalho diz o total e a
+  **próxima posição** — continuar virou decisão do modelo, não acidente;
+- `buscar_nas_fontes` para em 25 ocorrências e avisa que truncou;
+- a saída inclui sempre o id e o título da fonte, para a resposta poder citar.
+
+É a mesma disciplina de saída limitada que vai valer para toda ferramenta futura:
+o agente decide o que trazer, nunca recebe um balde.
 
 ---
 
@@ -368,7 +404,10 @@ Cada fase é utilizável sozinha. Nada de fase que só serve se a próxima exist
 - [x] rotas e UI de configuração de modelo (botão "Modelo" na tela inicial)
 - [x] `engine/checkpoint.py`: `AsyncSqliteSaver` em arquivo próprio, 1 caderno =
       1 `thread_id`, ligado no lifespan do app (D019, D033)
-- [ ] `engine/tools/leitura.py` + `web.py`
+- [x] `engine/tools/leitura.py`: `listar_fontes`, `ler_fonte`, `buscar_nas_fontes`
+      presas ao caderno (D034) e com saída limitada (D035)
+- [ ] `engine/tools/web.py`: `web_extract` (reusa o `ingest`) e `web_search`
+      (depende de decisão sobre provedor de busca — D036)
 - [ ] `engine/agent.py`: `create_agent` com `system_prompt` nosso e catálogo curado
       (D018, D023, D025)
 - [ ] rotas de chat do app passando por `engine/` em vez do Hermes
@@ -461,6 +500,11 @@ uv run pytest
 - Antes de escrever código contra API de terceiro, **verificar a assinatura real**
   na versão instalada. Foi assim que se descobriu a depreciação do
   `create_react_agent`.
+- **O fake pronto da lib não conduz o laço do agente.** O `bind_tools` herdado de
+  `BaseChatModel` levanta `NotImplementedError`, e o `create_agent` liga as
+  ferramentas no modelo antes de rodar. O nosso `engine/fake.py` implementa um
+  `bind_tools` no-op justamente por isso — descoberto ao tentar testar,
+  não ao tentar usar.
 - Commit por tarefa, não por fase.
 
 ---
