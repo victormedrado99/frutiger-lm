@@ -49,12 +49,19 @@
   async function loadStatus() {
     try {
       var s = await C.api("/api/status");
-      if (s.engine && s.engine.ok) {
+      if (!s.engine || !s.engine.ok) {
+        els.enginePill.className = "pill bad";
+        els.enginePill.textContent = "motor fora do ar";
+        els.enginePill.title = "O API server do Hermes não respondeu em " + s.engine_url;
+      } else if (!s.auth_ok) {
+        els.enginePill.className = "pill bad";
+        els.enginePill.textContent = "chave recusada";
+        els.enginePill.title = s.auth_error || "HERMES_KEY não confere com o API_SERVER_KEY.";
+        C.toast(s.auth_error || "A chave do motor foi recusada.", "err", 12000);
+      } else {
         els.enginePill.className = "pill ok";
         els.enginePill.textContent = "motor ok";
-      } else {
-        els.enginePill.className = "pill bad";
-        els.enginePill.textContent = "motor fora";
+        els.enginePill.title = "Motor respondendo e autenticado.";
       }
     } catch (e) {
       els.enginePill.className = "pill bad";

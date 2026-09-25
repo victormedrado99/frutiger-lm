@@ -48,12 +48,19 @@
     var pill = document.getElementById("engine-pill");
     try {
       var s = await C.api("/api/status");
-      if (s.engine && s.engine.ok) {
-        pill.className = "pill ok";
-        pill.textContent = "motor ok · " + s.engine_url.replace(/^https?:\/\//, "");
-      } else {
+      if (!s.engine || !s.engine.ok) {
         pill.className = "pill bad";
         pill.textContent = "motor fora do ar";
+        pill.title = "O API server do Hermes não respondeu em " + s.engine_url;
+      } else if (!s.auth_ok) {
+        pill.className = "pill bad";
+        pill.textContent = "chave recusada";
+        pill.title = s.auth_error || "HERMES_KEY não confere com o API_SERVER_KEY.";
+        C.toast(s.auth_error || "A chave do motor foi recusada.", "err", 12000);
+      } else {
+        pill.className = "pill ok";
+        pill.textContent = "motor ok · " + s.engine_url.replace(/^https?:\/\//, "");
+        pill.title = "Motor respondendo e autenticado.";
       }
     } catch (err) {
       pill.className = "pill bad";

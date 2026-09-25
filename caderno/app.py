@@ -98,16 +98,21 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 async def status() -> dict[str, Any]:
     engine = await hermes.health()
     caps: dict[str, Any] = {}
+    auth_ok = False
+    auth_error = None
     if engine["ok"]:
         try:
             caps = (await hermes.capabilities()).get("features", {})
-        except hermes.HermesError:
-            caps = {}
+            auth_ok = True
+        except hermes.HermesError as exc:
+            auth_error = str(exc)
     return {
         "app": "caderno",
         "version": app.version,
         "engine": engine,
         "engine_url": settings.hermes_url,
+        "auth_ok": auth_ok,
+        "auth_error": auth_error,
         "features": caps,
         "data_dir": str(settings.data_dir),
         "inline_limit": settings.inline_limit,
