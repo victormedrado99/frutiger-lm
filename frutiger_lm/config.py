@@ -1,4 +1,4 @@
-"""Configuração do Caderno — lida de variáveis de ambiente / .env."""
+"""Configuração do Frutiger LM — lida de variáveis de ambiente / .env."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ class Settings:
 
     @property
     def db_path(self) -> Path:
-        return self.data_dir / "caderno.db"
+        return self.data_dir / "frutiger_lm.db"
 
     @property
     def notebooks_dir(self) -> Path:
@@ -69,18 +69,18 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    data_dir = Path(_env("CADERNO_DATA_DIR", "./data"))
+    data_dir = Path(_env("FRUTIGER_DATA_DIR", "./data"))
     if not data_dir.is_absolute():
         data_dir = (PROJECT_ROOT / data_dir).resolve()
 
     settings = Settings(
         hermes_url=_env("HERMES_URL", "http://127.0.0.1:8642").rstrip("/"),
         hermes_key=_env("HERMES_KEY"),
-        session_key=_env("CADERNO_SESSION_KEY", "caderno:local:"),
+        session_key=_env("FRUTIGER_SESSION_KEY", "frutiger:local:"),
         data_dir=data_dir,
-        port=_env_int("CADERNO_PORT", 8765),
-        inline_limit=_env_int("CADERNO_INLINE_LIMIT", 24000),
-        output_model=_env("CADERNO_OUTPUT_MODEL"),
+        port=_env_int("FRUTIGER_PORT", 8765),
+        inline_limit=_env_int("FRUTIGER_INLINE_LIMIT", 24000),
+        output_model=_env("FRUTIGER_OUTPUT_MODEL"),
     )
     settings.ensure_dirs()
     return settings

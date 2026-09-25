@@ -1,52 +1,57 @@
-# Hermes LM
+# Frutiger LM
 
-Notebooks de estudo com as suas fontes, conversa e outputs — usando o
-[Hermes Agent](https://github.com/NousResearch/hermes-agent) como motor.
+Notebooks de estudo com as suas fontes, conversa, outputs e um **grafo de
+conhecimento ancorado** — o que você estuda vira conceito ligado a conceito, com
+rastro até a fonte.
 
-> **Projeto independente.** Usa o Hermes Agent e o modelo que você configurar,
-> sem nenhuma afiliação com o Nous Research.
-
+> **Projeto independente**, sem afiliação com o Nous Research ou com a Monotype.
+> "Frutiger" aqui se refere à linhagem estética que inspira a interface.
+>
 > **Arquitetura e roadmap:** veja [PROJETO.md](PROJETO.md). É o documento-vivo do
 > projeto — toda decisão estrutural está registrada lá, com status e justificativa.
 
-Se você já usou o NotebookLM do Google, a ideia é a mesma, mas sem imagens e sem
-áudio: só **organizar cadernos de estudo, juntar fontes e conversar com elas**.
-A diferença é que o motor é um agente de verdade — ele tem terminal, leitura de
-arquivos, busca na web e transcrição de vídeo, então pode ir muito além de
-"responder sobre um PDF".
+Se você já usou o NotebookLM do Google, a ideia parte da mesma base, mas com uma
+diferença de fundo: o NotebookLM é um **consumidor de fontes** (joga material,
+conversa, gera um output, e aquilo morre ali). O Frutiger LM é um **construtor
+de conhecimento que persiste e se liga**. Sem imagens e sem áudio — só estrutura
+de estudo.
 
-## Como funciona
+> **Estado: em migração de motor.** O motor atual é o Hermes Agent; ele está sendo
+> substituído por um agente LangGraph próprio, com ferramentas fixas (F1 do
+> PROJETO.md). Quando F1 terminar, o requisito deixa de ser "um Hermes instalado"
+> e passa a ser apenas uma **API key** de modelo — ou nada, se você usar modelo
+> local.
+
+## Como funciona (hoje)
 
 ```
-   ┌──────────────────────┐         HTTP / SSE          ┌────────────────────┐
-   │  Caderno (este app)  │  ───────────────────────▶   │  Hermes Agent      │
-   │  FastAPI + UI        │   /api/sessions/{id}/chat   │  API server        │
-   │  cadernos, fontes,   │  ◀───────────────────────   │  (o motor)         │
-   │  outputs, SQLite     │        streaming            │  modelo + tools    │
-   └──────────────────────┘                             └────────────────────┘
+   ┌───────────────────────┐        HTTP / SSE         ┌────────────────────┐
+   │  Frutiger LM (o app)  │  ──────────────────────▶  │  motor             │
+   │  FastAPI + UI vanilla │   /api/sessions/{id}/chat │  Hermes hoje       │
+   │  cadernos, fontes,    │  ◀──────────────────────   │  LangGraph na F1   │
+   │  outputs, SQLite      │        streaming          │  modelo + tools    │
+   └───────────────────────┘                           └────────────────────┘
 ```
-
-O app é uma **casca fina**. Todo o trabalho de agente — loop de conversação,
-ferramentas, memória, streaming, histórico — é feito pelo Hermes. O Caderno
-cuida só do que é seu: os cadernos, as fontes em disco e os documentos gerados.
 
 Mapeamento dos conceitos:
 
-| Caderno        | Sessão do Hermes (`/api/sessions/...`)                    |
-| Fontes         | arquivos `.txt` em `data/notebooks/<id>/fontes/` + SQLite |
-| Chat do meio   | `POST /api/sessions/{id}/chat/stream` (SSE)               |
-| Outputs        | `POST /v1/chat/completions` sem estado + Markdown salvo   |
+| Conceito       | Onde vive                                                  |
+|---|---|
+| Caderno        | linha no SQLite + um `thread_id` no motor                    |
+| Fontes         | arquivos `.txt` em `data/notebooks/<id>/fontes/` + SQLite    |
+| Chat           | streaming (SSE) do motor                                     |
+| Outputs        | documento Markdown gerado e salvo, versionado                |
 
 ## Requisitos
 
 - Linux, macOS ou Windows
 - [uv](https://docs.astral.sh/uv/) (ou Python 3.11+ e pip)
-- Um **Hermes Agent instalado e configurado** com um provedor de modelo
-  (`hermes setup` ou `hermes model`)
+- **Hoje:** um Hermes Agent instalado e configurado com um provedor de modelo.
+  **Depois da F1:** apenas uma API key de modelo (ou um modelo local).
 
 ## Instalação
 
-### 1. Ligue o API server do Hermes
+### 1. Ligue o API server do Hermes (etapa temporária)
 
 Adicione ao `~/.hermes/.env`:
 
@@ -63,6 +68,8 @@ E reinicie o gateway:
 hermes gateway restart
 ```
 
+> Esta etapa desaparece na F1, quando o motor passa a ser nosso.
+
 Confirme que subiu:
 
 ```bash
@@ -70,35 +77,32 @@ curl http://127.0.0.1:8642/health
 # {"status": "ok", "platform": "hermes-agent", ...}
 ```
 
-> Esse endpoint dá acesso total às ferramentas do agente, **incluindo o
-> terminal**. Nunca exponha a porta 8642 na internet. O Caderno fala com ela
-> por loopback.
+> Esse endpoint dá acesso às ferramentas do agente. Nunca exponha a porta 8642
+> na internet — o app fala com ela por loopback.
 
-### 2. Rode o Caderno
+### 2. Rode o app
 
 ```bash
-git clone <este-repo> caderno && cd caderno
+git clone <este-repo> frutiger-lm && cd frutiger-lm
 cp .env.example .env      # e ponha a MESMA chave do API_SERVER_KEY em HERMES_KEY
 uv sync
-uv run caderno
+uv run frutiger-lm
 ```
 
 Abra http://127.0.0.1:8765.
 
 ### 3. (Opcional, Linux) Deixar sempre no ar
 
-Se você não quer subir o app na mão toda vez, use um serviço de usuário do
-systemd — o mesmo padrão do `hermes-gateway.service`. O unit está versionado em
-`deploy/caderno.service`:
+O unit está versionado em `deploy/frutiger-lm.service`:
 
 ```bash
-install -m 644 deploy/caderno.service ~/.config/systemd/user/
+install -m 644 deploy/frutiger-lm.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now caderno.service
+systemctl --user enable --now frutiger-lm.service
 ```
 
-Ele já declara `After=hermes-gateway.service`, então o app espera o motor subir,
-e `Restart=always` faz ele voltar sozinho se cair (testado com `kill -9`).
+Ele declara `After=hermes-gateway.service`, então o app espera o motor subir, e
+`Restart=always` faz ele voltar sozinho se cair (testado com `kill -9`).
 
 Ajuste o caminho do projeto no unit se você não clonou em `~/Projetos/caderno`.
 Para sobreviver ao logout, o linger precisa estar ativo:
@@ -109,11 +113,11 @@ loginctl enable-linger $USER
 
 > **Não use `Wants=hermes-gateway.service`** neste unit — só `After=`. Motivo: o
 > gateway pode ter sido iniciado fora do systemd (por `hermes gateway restart`,
-> que sobe o processo sem o systemd rastreá-lo). Com `Wants=`, cada start do
-> caderno dispara uma tentativa de subir o gateway, que falha com
+> que sobe o processo sem o systemd rastreá-lo). Com `Wants=`, cada start do app
+> dispara uma tentativa de subir o gateway, que falha com
 > `Gateway already running` e entra em **loop de restart** (o
-> `hermes-gateway.service` tem `Restart=always`). O sintoma é
-> `NRestarts` subindo sem parar e o journal repetindo "already running".
+> `hermes-gateway.service` tem `Restart=always`). O sintoma é `NRestarts` subindo
+> sem parar e o journal repetindo "already running".
 >
 > Para sair do loop:
 > ```bash
@@ -125,7 +129,7 @@ loginctl enable-linger $USER
 > estabiliza em zero.
 
 No macOS e no Windows não há systemd — lá o caminho é launchd / Task Scheduler,
-ou simplesmente rodar `uv run caderno` quando precisar.
+ou simplesmente rodar `uv run frutiger-lm` quando precisar.
 
 ## Usando
 
@@ -138,35 +142,35 @@ ou simplesmente rodar `uv run caderno` quando precisar.
    - **Outputs** (direita): gere um documento a partir das fontes — resumo
      executivo, guia de estudo, FAQ, linha do tempo, mapa de conceitos, tabela
      comparativa ou plano de aprendizado. Fica salvo, versionado e exportável em
-     `.md`.
+     `.md`. É este painel que a F4 reformula.
 
 ### Como o agente "lê" as fontes
 
 Duas estratégias, escolhidas automaticamente:
 
-- **Caderno pequeno** (padrão: até 24.000 caracteres ≈ 6k tokens de fontes):
-  o conteúdo inteiro das fontes vai no prompt. Resposta mais rápida e barata.
-- **Caderno grande**: o prompt leva só o índice (título, tipo, tamanho e o
-  caminho do arquivo) e o agente usa `read_file` / `search_files` / `grep` para
-  consultar o que precisa, quando precisa.
+- **Caderno pequeno** (padrão: até 24.000 caracteres ≈ 6k tokens de fontes): o
+  conteúdo inteiro das fontes vai no prompt. Resposta mais rápida e barata.
+- **Caderno grande**: o prompt leva só o índice (título, tipo, tamanho e o caminho
+  do arquivo) e o agente usa as ferramentas de leitura para consultar o que
+  precisa, quando precisa.
 
-O limite fica em `CADERNO_INLINE_LIMIT` no `.env`. Suba se seu modelo tiver
-contexto grande; desça se quiser economizar.
+O limite fica em `FRUTIGER_INLINE_LIMIT` no `.env`.
 
-### Custo
+### Custo (hoje)
 
-O agente carrega o prompt de sistema inteiro do Hermes (descrição de todas as
-ferramentas) em cada turno — na casa de **15 a 20 mil tokens de entrada**, mesmo
-para uma pergunta trivial. Se isso pesar, enxugue as ferramentas do agente:
+O agente carrega o prompt de sistema do Hermes (descrição de todas as ferramentas)
+em cada turno — na casa de **15 a 20 mil tokens de entrada**, mesmo para uma
+pergunta trivial. Esse custo **desaparece na F1**, quando o prompt de sistema passa
+a ser nosso e as ferramentas ficam restritas às do app.
+
+Se pesar enquanto isso, enxugue as ferramentas do agente:
 
 ```bash
 hermes tools disable browser
 hermes tools disable vision
 hermes tools disable image_gen
+hermes tools disable terminal
 ```
-
-Ou aponte o Caderno para um [profile](https://hermes-agent.nousresearch.com/docs/user-guide/profiles)
-dedicado, com toolset menor e o modelo que você quiser.
 
 ## Configuração
 
@@ -174,56 +178,52 @@ Veja `.env.example`. As principais:
 
 | Variável | Padrão | Para que serve |
 |---|---|---|
-| `HERMES_URL` | `http://127.0.0.1:8642` | onde está o motor |
-| `HERMES_KEY` | — | a chave do `API_SERVER_KEY` |
-| `CADERNO_DATA_DIR` | `./data` | banco SQLite e arquivos das fontes |
-| `CADERNO_PORT` | `8765` | porta do app |
-| `CADERNO_INLINE_LIMIT` | `24000` | quando parar de inlinar e passar a usar tools |
-| `CADERNO_SESSION_KEY` | `caderno:local:` | escopo da memória de longo prazo no Hermes |
+| `HERMES_URL` | `http://127.0.0.1:8642` | onde está o motor (temporário) |
+| `HERMES_KEY` | — | a chave do `API_SERVER_KEY` (temporário) |
+| `FRUTIGER_DATA_DIR` | `./data` | banco SQLite e arquivos das fontes |
+| `FRUTIGER_PORT` | `8765` | porta do app |
+| `FRUTIGER_INLINE_LIMIT` | `24000` | quando parar de inlinar e passar a usar tools |
+| `FRUTIGER_SESSION_KEY` | `frutiger:local:` | escopo da memória de longo prazo no motor |
+
+Na F1 entram as variáveis de modelo (`LLM_CHAT`, `LLM_FAST`, `LLM_EMBED`), que é
+como se escolhe API ou modelo local.
 
 ## Multi-usuário
 
-O Caderno nasceu **self-host**: cada pessoa clona, roda o seu Hermes e usa a
-própria chave de modelo. Não há login nem tabela de usuários.
+O app nasceu **self-host**: cada pessoa clona, roda com a própria chave de modelo.
+Não há login nem tabela de usuários. A camada de estado já é isolada por diretório
+de dados, então virar multiusuário é configuração, não reescrita.
 
-Para servir várias pessoas a partir de uma instalação, o caminho natural é
-[criar um profile do Hermes por pessoa](https://hermes-agent.nousresearch.com/docs/user-guide/profiles)
-(com `API_SERVER_PORT` e `API_SERVER_KEY` próprios), rodar uma instância do
-Caderno por profile, e colocar autenticação na frente (nginx + basic auth, ou o
-proxy de sua preferência). A camada de estado do app já é isolada por diretório
-de dados, então isso é configuração, não reescrita.
+Para servir várias pessoas, o caminho é autenticação na frente (nginx + basic
+auth, ou o proxy de sua preferência) e uma instância por pessoa.
 
 ## Notas de arquitetura
 
-- **Uma sessão do Hermes por caderno.** O histórico fica no `state.db` do Hermes
-  e é recarregado pelo próprio motor — o Caderno não duplica conversa.
-- **As fontes entram por `system_message`**, que é *efêmero* no API server do
-  Hermes: vale para o turno, não é persistido no histórico, e portanto não
-  invalida o cache de prompt nem polui a conversa.
-- **Outputs não passam por sessão.** Usam `/v1/chat/completions`, que é sem
-  estado — assim gerar um guia de estudo não suja o histórico do chat e não
-  gasta contexto acumulado.
 - **As fontes são arquivos de verdade em disco.** Você pode abrir, grepar,
   versionar com git ou jogar num backup sem falar com o app.
-- **Apagar `data/` na mão órfã as sessões no Hermes.** O lado do app é quem
-  guarda o `session_id`; apagar o banco sem passar pelo app deixa as conversas
-  no `state.db` do Hermes sem dono. Apague cadernos pelo botão do app — ou
-  limpe depois com `hermes sessions prune`.
+- **As fontes entram por `system_message`**, que é *efêmero* no motor atual: vale
+  para o turno, não é persistido no histórico, e portanto não invalida o cache de
+  prompt nem polui a conversa.
+- **Outputs não passam pela sessão do chat.** São gerados fora dela, para que gerar
+  um guia de estudo não suje o histórico nem gaste contexto acumulado.
+- **Apagar `data/` na mão órfã as sessões no motor.** O lado do app é quem guarda o
+  id da sessão; apagar o banco sem passar pelo app deixa conversas sem dono. Apague
+  cadernos pelo botão do app. (Isso desaparece na F1, quando o estado da conversa
+  vem para o nosso SQLite.)
 
 ## Desenvolvimento
 
 ```bash
-uv sync                 # dependências + ferramentas de dev
-uv run ruff check .     # lint
-uv run pytest           # testes (43, rodam em ~0,2 s, sem rede)
-uv run caderno --reload # servidor com recarga automática
+uv sync                    # dependências + ferramentas de dev
+uv run ruff check .        # lint
+uv run pytest              # testes (48, rodam em ~0,2 s, sem rede)
+uv run frutiger-lm --reload # servidor com recarga automática
 ```
 
-Os testes cobrem o que é nosso: banco, montagem do contexto (incluindo a
-fronteira entre injetar o texto e mandar o agente ler o arquivo), ingestão
-(texto, PDF, detecção de YouTube) e os prompts. Nada neles toca a rede nem o
-motor Hermes — comportamento de LLM não é testável de forma determinística e é
-validado à parte.
+Os testes cobrem o que é nosso: banco, montagem do contexto (incluindo a fronteira
+entre injetar o texto e mandar o agente ler o arquivo), ingestão (texto, PDF,
+detecção de YouTube) e os prompts. Nada neles toca a rede nem o motor —
+comportamento de LLM não é testável de forma determinística e é validado à parte.
 
 ## Licença
 

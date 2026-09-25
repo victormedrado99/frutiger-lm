@@ -119,7 +119,7 @@
     if (el) el.hidden = true;
   }
 
-  global.Caderno = {
+  global.FrutigerLM = {
     api: api,
     toast: toast,
     escapeHtml: escapeHtml,

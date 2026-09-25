@@ -2,7 +2,7 @@
 
 (function () {
   "use strict";
-  var C = window.Caderno;
+  var C = window.FrutigerLM;
   var grid = document.getElementById("grid");
   var subtitle = document.getElementById("subtitle");
 

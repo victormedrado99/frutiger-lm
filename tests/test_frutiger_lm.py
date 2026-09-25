@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from caderno import db, hermes, ingest, prompts
-from caderno.config import settings
+from frutiger_lm import db, hermes, ingest, prompts
+from frutiger_lm.config import settings
 
 
 def fonte(notebook_id: str, texto: str, titulo: str = "Fonte"):

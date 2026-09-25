@@ -1,4 +1,4 @@
-"""Ponto de entrada: `uv run caderno` ou `python -m caderno`."""
+"""Ponto de entrada: `uv run frutiger-lm` ou `python -m frutiger_lm`."""
 
 from __future__ import annotations
 
@@ -10,7 +10,10 @@ from .config import settings
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="caderno", description="Caderno — notebooks de estudo com o Hermes como motor")
+    parser = argparse.ArgumentParser(
+        prog="frutiger-lm",
+        description="Frutiger LM — notebooks de estudo com fontes, grafo de conhecimento e outputs",
+    )
     parser.add_argument("--host", default="127.0.0.1", help="endereço (default 127.0.0.1)")
     parser.add_argument("--port", type=int, default=settings.port, help=f"porta (default {settings.port})")
     parser.add_argument("--reload", action="store_true", help="recarrega ao editar o código")
@@ -23,12 +26,12 @@ def main() -> None:
             "  API_SERVER_KEY no ~/.hermes/.env\n"
         )
 
-    print(f"\n  Caderno  ->  http://{args.host}:{args.port}")
-    print(f"  Motor    ->  {settings.hermes_url}")
-    print(f"  Dados    ->  {settings.data_dir}\n")
+    print(f"\n  Frutiger LM  ->  http://{args.host}:{args.port}")
+    print(f"  Motor        ->  {settings.hermes_url}")
+    print(f"  Dados        ->  {settings.data_dir}\n")
 
     uvicorn.run(
-        "caderno.app:app",
+        "frutiger_lm.app:app",
         host=args.host,
         port=args.port,
         reload=args.reload,
