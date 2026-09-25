@@ -346,6 +346,34 @@ def test_erro_generico_extrai_a_mensagem_do_motor():
     assert hermes._explain(500, corpo) == "modelo indisponivel"
 
 
+def test_health_nao_explode_com_o_motor_fora():
+    """Regressão: motor inacessível virava httpx.ConnectError cru -> 500 em /api/status.
+
+    O conftest aponta HERMES_URL para uma porta morta, então isto exercita o
+    caminho real de "gateway caiu" sem derrubar nada.
+    """
+    info = asyncio.run(hermes.health())
+    assert info["ok"] is False
+    assert info["status"] is None
+    assert info["url"] == settings.hermes_url
+    assert "error" in info
+
+
+@pytest.mark.parametrize(
+    "chamada",
+    [
+        lambda: hermes.capabilities(),
+        lambda: hermes.create_session("x"),
+        lambda: hermes.list_messages("api_x"),
+        lambda: hermes.complete("sys", "user"),
+    ],
+)
+def test_falha_de_transporte_vira_hermes_error(chamada):
+    """Quem chama só precisa tratar HermesError; httpx não vaza pra cima."""
+    with pytest.raises(hermes.HermesError, match="gateway do Hermes"):
+        asyncio.run(chamada())
+
+
 def test_headers_levam_o_bearer_e_a_chave_de_sessao():
     headers = hermes._headers()
     assert headers["Authorization"].startswith("Bearer ")

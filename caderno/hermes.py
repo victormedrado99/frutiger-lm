@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
@@ -30,6 +31,27 @@ TIMEOUT = httpx.Timeout(connect=10.0, read=600.0, write=60.0, pool=10.0)
 
 class HermesError(RuntimeError):
     """Erro vindo do motor, já com mensagem legível."""
+
+
+def _offline(exc: Exception) -> HermesError:
+    return HermesError(
+        f"Não consegui falar com o motor em {settings.hermes_url} ({type(exc).__name__}). "
+        "O gateway do Hermes está rodando? Veja com `hermes gateway status`."
+    )
+
+
+@asynccontextmanager
+async def _client() -> AsyncIterator[httpx.AsyncClient]:
+    """Cliente HTTP que traduz falha de transporte em HermesError.
+
+    Sem isso, gateway fora do ar vira `httpx.ConnectError` cru e explode como
+    500 em quem só queria mostrar "motor fora do ar" na tela.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            yield client
+    except httpx.HTTPError as exc:
+        raise _offline(exc) from None
 
 
 def _headers() -> dict[str, str]:
@@ -61,13 +83,22 @@ def _explain(status: int, body: str) -> str:
 
 
 async def health() -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        resp = await client.get(f"{settings.hermes_url}/health")
-        return {"ok": resp.status_code == 200, "status": resp.status_code, "body": resp.text[:400]}
+    """Nunca levanta: é daqui que a UI tira o "motor fora do ar"."""
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.get(f"{settings.hermes_url}/health")
+            return {"ok": resp.status_code == 200, "status": resp.status_code, "body": resp.text[:400]}
+    except httpx.HTTPError as exc:
+        return {
+            "ok": False,
+            "status": None,
+            "url": settings.hermes_url,
+            "error": f"{type(exc).__name__}: {exc}"[:200],
+        }
 
 
 async def capabilities() -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with _client() as client:
         resp = await client.get(f"{settings.hermes_url}/v1/capabilities", headers=_headers())
         if resp.status_code != 200:
             raise HermesError(_explain(resp.status_code, resp.text))
@@ -79,7 +110,7 @@ async def capabilities() -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 async def create_session(title: str) -> str:
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with _client() as client:
         resp = await client.post(
             f"{settings.hermes_url}/api/sessions", headers=_headers(), json={"title": title}
         )
@@ -94,12 +125,12 @@ async def create_session(title: str) -> str:
 
 
 async def delete_session(session_id: str) -> None:
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with _client() as client:
         await client.delete(f"{settings.hermes_url}/api/sessions/{session_id}", headers=_headers())
 
 
 async def rename_session(session_id: str, title: str) -> None:
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with _client() as client:
         await client.patch(
             f"{settings.hermes_url}/api/sessions/{session_id}",
             headers=_headers(),
@@ -108,7 +139,7 @@ async def rename_session(session_id: str, title: str) -> None:
 
 
 async def list_messages(session_id: str) -> list[dict[str, Any]]:
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with _client() as client:
         resp = await client.get(
             f"{settings.hermes_url}/api/sessions/{session_id}/messages", headers=_headers()
         )
@@ -134,8 +165,7 @@ async def chat_stream(
     if system_message:
         payload["system_message"] = system_message
 
-    client = httpx.AsyncClient(timeout=TIMEOUT)
-    async with client, client.stream(
+    async with _client() as client, client.stream(
         "POST",
         f"{settings.hermes_url}/api/sessions/{session_id}/chat/stream",
         headers=_headers(),
@@ -177,7 +207,7 @@ async def complete(
         ],
         "stream": False,
     }
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with _client() as client:
         resp = await client.post(
             f"{settings.hermes_url}/v1/chat/completions", headers=_headers(), json=body
         )

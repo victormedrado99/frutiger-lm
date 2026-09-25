@@ -79,6 +79,31 @@ uv run caderno
 
 Abra http://127.0.0.1:8765.
 
+### 3. (Opcional, Linux) Deixar sempre no ar
+
+Se você não quer subir o app na mão toda vez, use um serviço de usuário do
+systemd — o mesmo padrão do `hermes-gateway.service`. O unit está versionado em
+`deploy/caderno.service`:
+
+```bash
+install -m 644 deploy/caderno.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now caderno.service
+```
+
+Ele já declara `After=hermes-gateway.service`, então o app espera o motor subir,
+e `Restart=always` faz ele voltar sozinho se cair (testado com `kill -9`).
+
+Ajuste o caminho do projeto no unit se você não clonou em `~/Projetos/caderno`.
+Para sobreviver ao logout, o linger precisa estar ativo:
+
+```bash
+loginctl enable-linger $USER
+```
+
+No macOS e no Windows não há systemd — lá o caminho é launchd / Task Scheduler,
+ou simplesmente rodar `uv run caderno` quando precisar.
+
 ## Usando
 
 1. **Cadernos** — a primeira tela lista seus cadernos. "Novo caderno" cria um.

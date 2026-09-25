@@ -1,0 +1,23 @@
+[Unit]
+Description=Caderno - notebooks de estudo com o Hermes como motor
+After=network-online.target hermes-gateway.service
+Wants=network-online.target hermes-gateway.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# %h = seu diretorio home. Ajuste se clonou o projeto em outro lugar.
+ExecStart=%h/Projetos/caderno/.venv/bin/caderno
+WorkingDirectory=%h/Projetos/caderno
+Environment="VIRTUAL_ENV=%h/Projetos/caderno/.venv"
+Environment="PATH=%h/Projetos/caderno/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Restart=always
+RestartSec=5
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
