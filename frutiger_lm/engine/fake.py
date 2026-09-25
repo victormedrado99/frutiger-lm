@@ -117,3 +117,41 @@ def com_ferramenta(
             AIMessage(resposta_final),
         ]
     )
+
+
+class _ExtratorFalso:
+    """Devolve objetos já prontos, no lugar do que o modelo devolveria.
+
+    Não herda de `BaseChatModel` de propósito: a extração só usa
+    `with_structured_output(...).ainvoke(...)`, e herdar exigiria implementar
+    `_generate` e `_stream` para não usar nenhum dos dois. Um objeto que faz o que
+    é usado é mais honesto — e se um dia a extração passar a usar mais da
+    interface, este fake quebra, o que é o aviso que se quer.
+    """
+
+    def __init__(self, objetos: list) -> None:
+        self.objetos = list(objetos)
+        self.chamadas: list[list] = []
+        self._i = 0
+
+    def with_structured_output(self, schema: type, **kw: object) -> _ExtratorFalso:
+        return self
+
+    def _proximo(self, mensagens: list) -> object:
+        self.chamadas.append(mensagens)
+        if not self.objetos:
+            raise AssertionError("o extrator falso ficou sem objetos para devolver")
+        objeto = self.objetos[min(self._i, len(self.objetos) - 1)]
+        self._i += 1
+        return objeto
+
+    def invoke(self, mensagens: list, **kw: object) -> object:
+        return self._proximo(mensagens)
+
+    async def ainvoke(self, mensagens: list, **kw: object) -> object:
+        return self._proximo(mensagens)
+
+
+def extrai(objetos: list) -> _ExtratorFalso:
+    """Um extrator falso para testar a extração de conceitos sem rede e sem custo."""
+    return _ExtratorFalso(objetos)
