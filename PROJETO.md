@@ -79,6 +79,10 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D038 | A tradução LangGraph → eventos da interface mora em `engine/agent.py`; a UI não sabe o que é LangGraph | DECIDIDO |
 | D039 | Chat global e chat do caderno usam **as mesmas ferramentas**; o que muda é o `Escopo`. Não há ferramenta de "busca entre cadernos" | DECIDIDO |
 | D040 | O índice dos cadernos é calculado **ao vivo**, sem cache — e sem resumo gerado por modelo | DECIDIDO |
+| D041 | Conceito canônico por chave normalizada; o extrator recebe o vocabulário existente e reusa o nome | PROPOSTO |
+| D042 | Extração é ação **explícita** (botão/ferramenta), não efeito de adicionar fonte | PROPOSTO |
+| D043 | Aresta de co-ocorrência sai do bloco; aresta explícita **exige trecho** | PROPOSTO |
+| D044 | Extração é lote, não subgrafo do LangGraph (`graphs/` fica para o F5) | PROPOSTO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -388,18 +392,28 @@ Dentro de `engine/`:
 engine/                                       (✅ = pronto, ⬜ = a fazer)
   llm.py           ✅ fábrica de modelo (UI ou .env, OpenAI-compatível)
   agent.py         ✅ o agente: create_agent + catálogo curado + checkpointer
+                     (montar() para um caderno, montar_global() para todos)
   checkpoint.py    ✅ AsyncSqliteSaver em arquivo próprio (D033)
   fake.py          ✅ modelo falso para teste, sem rede
+  extracao.py      ⬜ conceitos a partir de um texto, via response_format (F3/D021)
   tools/
-    leitura.py      ✅ listar_fontes, ler_fonte, buscar_nas_fontes
+    leitura.py      ✅ listar_fontes, ler_fonte, buscar_nas_fontes — presas a um Escopo
     web.py          ✅ web_extract  ·  ⬜ web_search (espera a D036)
-    grafo.py        ⬜ criar/ligar/mesclar conceito, consultar vizinhança
-    cadernos.py     ⬜ buscar/listar entre cadernos (para o chat global)
-    artefatos.py    ⬜ gerar_plano, gerar_faq, compilar_pdf → disparam subgrafos
+    grafo.py        ⬜ buscar no grafo, vizinhança, registrar relação (F3/D027)
+    artefatos.py    ⬜ gerar_plano, gerar_faq, compilar_pdf → disparam subgrafos (F5)
   graphs/
-    artefato.py     ⬜ o subgrafo que produz um documento (D028)
-    extracao.py     ⬜ extração de conceitos via response_format (D021)
+    artefato.py     ⬜ o subgrafo que produz um documento (D028, F5)
 ```
+
+Fora de `engine/`, junto do `db.py` (não fala com modelo, então não é do `engine` —
+D018):
+
+```
+knowledge.py       ⬜ a loja do grafo: a ÚNICA porta de leitura e escrita (F3/D024)
+```
+
+`tools/cadernos.py` **não existe e não deve existir** (D039): o chat global usa as
+mesmas ferramentas de leitura com outro escopo.
 
 Regra de ouro: **`engine/` é a única porta para modelo.** Trocar de provedor é
 mudar configuração, nunca código.
@@ -548,15 +562,119 @@ Cada fase é utilizável sozinha. Nada de fase que só serve se a próxima exist
   conceito para existir, e conceito é do F3.
 - `engine/tools/cadernos.py`: **não existe**, e não deve existir (D039).
 
-### F3 — Grafo de conhecimento
-- [ ] `knowledge.py`: extração de conceitos via `response_format` (D021)
-- [ ] nó canônico, aliases e normalização
-- [ ] arestas de co-ocorrência (de graça) e explícitas
+### F3 — Grafo de conhecimento  ← PLANO ESCRITO (abaixo)
+- [ ] `knowledge.py`: a loja do grafo (normalizar, achar-ou-criar, mencionar, ligar,
+      mesclar, vizinhança)
+- [ ] `extracao.py`: extração de conceitos via `response_format` (D021), com
+      validação do trecho (D041, D043)
+- [ ] nó canônico por chave normalizada + vocabulário existente entregue ao extrator
+      (D041)
+- [ ] arestas de co-ocorrência (de graça) e explícitas, estas exigindo trecho (D043)
 - [ ] `engine/tools/grafo.py`: as ferramentas de grafo (D027)
 - [ ] `graph.js`: force-directed em canvas + filtros (caderno, peso, recência)
 - [ ] painel do grafo global na home
 - [ ] tela do conceito: menções, trecho de origem, cadernos onde aparece
-- [ ] edição na UI: mesclar, renomear, apagar (mesma implementação das tools)
+- [ ] edição na UI: mesclar, renomear, apagar (mesma implementação das tools — D024)
+- [ ] "virar conhecimento" numa conclusão do chat (veio do F2)
+
+---
+
+## 7.1 Plano do F3 — o grafo ancorado
+
+### O que a fase entrega
+
+Um grafo de conceitos que **sobrevive à conversa**. É a tese do produto: o
+NotebookLM é um consumidor de fontes (joga material, conversa, gera documento,
+morre); o Frutiger LM quer ser um construtor de conhecimento que **persiste e se
+liga**. O grafo é o que materializa essa diferença.
+
+### A regra que faz o grafo valer
+
+Um grafo bonito não presta. O que faz ele valer é a **ancoragem**: toda menção
+guarda o trecho, o caderno e a fonte de onde saiu.
+
+Daí a regra mais importante desta fase:
+
+> **A menção só é gravada se o trecho existir, de fato, no texto da fonte.**
+
+O extrator devolve o trecho verbatim e nós conferimos contra o material. Trecho que
+não casa é descartado — e contado, para não escondermos a taxa de descarte. Sem
+essa checagem, o grafo viraria um desenho plausível de coisas que ninguém disse, que
+é o modo mais fácil de um projeto desses fracassar em silêncio.
+
+### As peças, na ordem
+
+1. **`db.py`** — as quatro tabelas da seção 6 (`concepts`, `mentions`, `edges`,
+   `notes`), com `_migrar()` idempotente, como as migrações anteriores.
+2. **`knowledge.py`** — a loja do grafo. Toda leitura e escrita do grafo passa por
+   aqui: é a única porta, e é o que faz o botão da UI e a ferramenta do agente
+   serem a mesma implementação (D024).
+3. **`extracao.py`** — o pipeline: fatiar a fonte em blocos, chamar o modelo com
+   `response_format` (D021), validar os trechos, gravar por `knowledge`.
+4. **`engine/tools/grafo.py`** — as ferramentas do agente (D027).
+5. **`/api/grafo/*`** — o grafo inteiro, a tela do conceito, e as ações de edição.
+6. **`graph.js` + painel na home** — force-directed em canvas, **sem biblioteca**
+   (o app não tem CDN e não vai ter).
+7. **"virar conhecimento"** — uma conclusão da conversa vira menção
+   (`thread_id` + `message_id`, que já estão previstos no schema).
+
+### Decisões do plano
+
+**D041 — o conceito é canônico por chave normalizada, e o extrator vê o vocabulário
+que já existe.**
+Normalizar (minúsculas, sem pontuação, espaços e hífens colapsados) resolve
+`OBD-II` / `OBD2` / `obd ii` de graça e sem modelo. O que a normalização **não**
+resolve — `barramento CAN` vs `CAN bus` — fica para a mesclagem manual na UI.
+
+O truque que evita a maior parte da fragmentação: **antes de extrair, entregamos ao
+modelo a lista dos conceitos que já existem**, com a instrução de reusar o nome. Sem
+isso o grafo fragmenta em variantes e o F6 (embeddings) viraria obrigatório só para
+deduplicar — ou seja, uma fase futura passaria a ser pré-requisito de uma anterior.
+
+**D042 — extração é uma ação explícita, não um efeito de adicionar fonte.**
+O roadmap dizia "extração automática ao adicionar fonte". Isso custa chamadas de
+modelo: uma fonte de 50 mil caracteres dá cerca de 7 blocos. Automático significa uma
+conta que cresce sem a pessoa pedir, e adicionar uma fonte deixaria de ser
+instantâneo.
+Então: **botão "Extrair conceitos"** no caderno, e o agente também pode disparar pela
+ferramenta (D024). Se você preferir automático, é um interruptor — mas o padrão é
+você mandar.
+
+**D043 — co-ocorrência sai do bloco; aresta explícita exige trecho.**
+Co-ocorrência: dois conceitos no mesmo bloco → aresta, com peso = número de blocos em
+que aparecem juntos. Sai de graça da extração, sem custo extra.
+Explícita: o modelo (ou você, na UI) afirma uma relação entre dois conceitos — e aí
+ela **exige o trecho que a sustenta**, com a mesma validação. Aresta sem rastro não
+entra: é ela que faz a diferença entre um grafo e um emaranhado de palpites.
+
+**D044 — a extração não é um subgrafo do LangGraph.**
+`graphs/` fica para o F5, que tem passe de compilação com acompanhamento na tela
+(D028). Extração é lote: fatiar → chamar → validar → gravar. Um grafo do LangGraph
+aqui seria cerimônia sem ganho.
+
+### O que o F3 não faz
+
+- embeddings e arestas por similaridade — F6
+- SRS, lacunas, contradições, fontes órfãs — F4
+- o PDF e a compilação — F5
+
+### Critério de pronto
+
+- extrair os conceitos do caderno real (~150 mil caracteres) e o grafo aparecer na
+  home, com arestas
+- abrir um conceito e ver os **trechos de origem**, com fonte e caderno
+- perguntar ao agente *"o que se liga com KWP2000?"* e ele responder **pelo grafo**,
+  citando onde
+- mesclar dois conceitos na UI e o grafo refletir
+- **zero trecho gravado que não exista na fonte** (com a taxa de descarte visível)
+
+### Ordem de execução
+
+1. tabelas + migração + `knowledge.py` + testes — lógica pura, sem modelo
+2. `extracao.py` + fake que devolve conceitos + testes — testável sem rede
+3. `tools/grafo.py` + rotas
+4. UI: painel na home e tela do conceito
+5. prova real, no caderno de verdade
 
 ### F4 — Painel direito do caderno
 - [ ] cards com repetição espaçada (SRS)
