@@ -1,7 +1,11 @@
 [Unit]
 Description=Caderno - notebooks de estudo com o Hermes como motor
+# After= ordena (o motor sobe antes), mas NAO use Wants=hermes-gateway.service
+# aqui: o gateway pode ter sido iniciado fora do systemd (via `hermes gateway
+# restart`), e um Wants= faz o caderno disparar tentativas de start que falham
+# com "Gateway already running" e entram em loop de restart.
 After=network-online.target hermes-gateway.service
-Wants=network-online.target hermes-gateway.service
+Wants=network-online.target
 StartLimitIntervalSec=0
 
 [Service]

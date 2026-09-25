@@ -101,6 +101,23 @@ Para sobreviver ao logout, o linger precisa estar ativo:
 loginctl enable-linger $USER
 ```
 
+> **Não use `Wants=hermes-gateway.service`** neste unit — só `After=`. Motivo: o
+> gateway pode ter sido iniciado fora do systemd (por `hermes gateway restart`,
+> que sobe o processo sem o systemd rastreá-lo). Com `Wants=`, cada start do
+> caderno dispara uma tentativa de subir o gateway, que falha com
+> `Gateway already running` e entra em **loop de restart** (o
+> `hermes-gateway.service` tem `Restart=always`). O sintoma é
+> `NRestarts` subindo sem parar e o journal repetindo "already running".
+>
+> Para sair do loop:
+> ```bash
+> systemctl --user stop hermes-gateway.service
+> hermes gateway stop
+> systemctl --user start hermes-gateway.service
+> ```
+> Depois disso o processo passa a ser o que o systemd rastreia e o contador
+> estabiliza em zero.
+
 No macOS e no Windows não há systemd — lá o caminho é launchd / Task Scheduler,
 ou simplesmente rodar `uv run caderno` quando precisar.
 
