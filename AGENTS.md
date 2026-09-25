@@ -167,6 +167,15 @@ frutiger_lm/
   desenho mostra. **O banco continua guardando todos**, porque os de passagem são o
   que as lacunas do F4 usam — cortar na extração seria irreversível e custaria uma
   funcionalidade para resolver um problema de desenho. Filtre na vista, não no dado.
+- **`max-width` num item flex que devia encostar na borda é um vazio fantasma.** Numa
+  janela larga o item para onde o teto manda e todo o espaço restante fica DEPOIS dele:
+  a barra parecia "presa no meio" com 340px de nada à direita. O teto tem que ir no
+  conteúdo (ou em nada), nunca na caixa que precisa alcançar a borda. **Meça em 1280,
+  1920 e 2560** — o defeito só aparece na janela grande, e é onde o usuário está.
+- **Nada se redimensiona sozinho.** Se um canvas (ou qualquer coisa com tamanho
+  calculado) não escuta o `resize`, ele fica com o tamanho de quando nasceu e desenha
+  para uma caixa que já não existe. Com espera de ~140ms, senão o arraste da janela
+  recompõe a simulação dezenas de vezes por segundo.
 
 ## Validar com o modelo real
 

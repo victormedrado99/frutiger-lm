@@ -696,10 +696,20 @@ input[type="range"]::-moz-range-thumb {
 
 .home { display: flex; align-items: flex-start; }
 
+/* A faixa da esquerda vai até a barra, e o conteúdo ACOMPANHA a largura.
+
+   Antes o `max-width` estava na caixa da página: numa janela de 1920px a página
+   parava em 1180, a barra começava ali e sobravam 340px de vazio à DIREITA dela —
+   a barra ficava flutuando no meio da tela. Medido: `lateral 1180..1580` num `home`
+   de 1920.
+
+   Nem a caixa nem o conteúdo têm teto agora: a grade de cadernos já é fluida
+   (`auto-fill`), então ela simplesmente acomoda mais colunas numa janela maior. Um
+   teto aqui só criaria um vazio novo entre os cadernos e a barra. */
 .home .page {
   flex: 1 1 auto;
   min-width: 0;
-  max-width: 1180px;
+  max-width: none;
   margin: 0;
   padding: 26px 26px 40px;
 }

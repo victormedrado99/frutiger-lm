@@ -447,13 +447,31 @@
     desenharGrafo(dados);
   }
 
+  /* O grafo abre no contexto de UM caderno, não em todos misturados.
+
+     A mistura é a exceção: serve para ver as pontes entre áreas, e por isso continua
+     na lista. O normal é estar estudando um caderno e querer o mapa DELE — e um mapa
+     de tudo é justamente onde os conceitos de duas matérias viram um borrão só.
+
+     "Já escolheu" é uma flag, e não o valor do campo: `""` é ao mesmo tempo "ainda não
+     escolhi" e "escolhi todos", e sem separar os dois a escolha explícita de "todos"
+     seria desfeita na recarga seguinte. */
+  var escopoEscolhido = false;
+
   function preencherFiltroDeCaderno(cadernos) {
-    var atual = grafoUI.caderno.value;
     grafoUI.caderno.innerHTML = '<option value="">todos os cadernos</option>' +
       cadernos.map(function (n) {
         return '<option value="' + C.escapeHtml(n.id) + '">' + C.escapeHtml(n.title) + "</option>";
       }).join("");
-    grafoUI.caderno.value = atual;
+
+    // A ordem é a de criação: a escolha padrão é estável entre recargas.
+    var escolha = escopoEscolhido
+      ? grafoUI.caderno.value
+      : (cadernos.length ? cadernos[0].id : "");
+    grafoUI.caderno.value = escolha;
+    // Se o caderno escolhido deixou de existir, o `<select>` fica sem valor: volta
+    // para "todos", que sempre existe.
+    if (grafoUI.caderno.value !== escolha) grafoUI.caderno.value = "";
   }
 
   /* ------------------------------------------------------------ o conceito */
@@ -663,10 +681,29 @@
     }
   }
 
-  medirTopbar();
-  window.addEventListener("resize", medirTopbar);
+  /* Redimensionar a janela tem que ATUALIZAR o desenho.
 
-  grafoUI.caderno.addEventListener("change", carregarGrafo);
+     Faltava: o canvas só se media ao ser criado e na troca de aba. Maximizar a janela
+     mudava a barra de lugar e o grafo continuava com o tamanho antigo — desenhado para
+     uma caixa que já não existia.
+
+     Com espera de 140ms porque o `resize` dispara dezenas de vezes por segundo durante
+     o arraste, e recompor a simulação a cada disparo deixaria o desenho tremendo. */
+  var esperaDoResize = null;
+  window.addEventListener("resize", function () {
+    medirTopbar();
+    clearTimeout(esperaDoResize);
+    esperaDoResize = setTimeout(function () {
+      if (grafoDesenho) grafoDesenho.reajustar();
+    }, 140);
+  });
+
+  medirTopbar();
+
+  grafoUI.caderno.addEventListener("change", function () {
+    escopoEscolhido = true;
+    carregarGrafo();
+  });
   grafoUI.semCooc.addEventListener("change", carregarGrafo);
   grafoUI.principais.addEventListener("change", carregarGrafo);
 

@@ -854,6 +854,25 @@ sempre: os dois exigiam rolar até eles e sumiam da vista assim que se mexia nos
 cadernos. Um grafo de conhecimento serve para ser olhado **de relance enquanto se lê
 outra coisa** — no meio da página ele não fazia isso.
 
+Duas regras que a barra aprendeu depois de quebrar:
+
+**A barra encosta na DIREITA, e quem acompanha a largura é o conteúdo.** O `max-width`
+estava na caixa da página, então numa janela de 1920px a página parava em 1180 e a
+barra começava ali — **340px de vazio à direita dela**, a barra flutuando no meio.
+Medido: `lateral 1180..1580` num `home` de 1920. Agora não há teto nem na caixa nem no
+conteúdo: a grade de cadernos já é fluida (`auto-fill`) e só ganha colunas (2 em 1280,
+5 em 1920, 7 em 2560), com a barra sempre na borda.
+
+**Redimensionar a janela recompõe o desenho.** Faltava o `resize` do grafo: o canvas só
+se media ao ser criado e na troca de aba, então maximizar deixava o desenho no tamanho
+antigo — desenhado para uma caixa que já não existia. Com espera de 140ms, porque o
+`resize` dispara dezenas de vezes por segundo durante o arraste.
+
+**E o grafo abre no contexto de UM caderno.** O padrão era "todos os cadernos", que é
+justamente onde os conceitos de duas matérias viram um borrão. A mistura continua na
+lista — serve para ver as pontes — mas o normal é estar estudando um caderno e querer o
+mapa dele.
+
 **D053 — o desenho do grafo tem física, e a vista tem outra função.**
 Antes, quem dava forma ao desenho era o `clamp` do retângulo do quadro: a repulsão
 empurrava os nós para fora, eles batiam na borda e ficavam ali. O formato final era o
