@@ -79,10 +79,10 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D038 | A tradução LangGraph → eventos da interface mora em `engine/agent.py`; a UI não sabe o que é LangGraph | DECIDIDO |
 | D039 | Chat global e chat do caderno usam **as mesmas ferramentas**; o que muda é o `Escopo`. Não há ferramenta de "busca entre cadernos" | DECIDIDO |
 | D040 | O índice dos cadernos é calculado **ao vivo**, sem cache — e sem resumo gerado por modelo | DECIDIDO |
-| D041 | Conceito canônico por chave normalizada; o extrator recebe o vocabulário existente e reusa o nome | PROPOSTO |
-| D042 | Extração é ação **explícita** (botão/ferramenta), não efeito de adicionar fonte | PROPOSTO |
-| D043 | Aresta de co-ocorrência sai do bloco; aresta explícita **exige trecho** | PROPOSTO |
-| D044 | Extração é lote, não subgrafo do LangGraph (`graphs/` fica para o F5) | PROPOSTO |
+| D041 | Conceito canônico por chave normalizada; o extrator recebe o vocabulário existente e reusa o nome | DECIDIDO |
+| D042 | Extração é ação **explícita** (botão/ferramenta), não efeito de adicionar fonte | DECIDIDO |
+| D043 | Aresta de co-ocorrência sai do bloco; aresta explícita **exige trecho** | DECIDIDO |
+| D044 | Extração é lote, não subgrafo do LangGraph (`graphs/` fica para o F5) | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -479,12 +479,13 @@ Embeddings são **infraestrutura**, não agente: servem às arestas por similari
 
 ## 6. Modelo de dados
 
-Já existe:
+Já existe (como está no código; esta seção chegou a citar `url` e `file_path`, que
+não existem — a seção foi corrigida para bater com o `SCHEMA`):
 
 ```
 notebooks(id, title, description, created_at, updated_at)
-sources(id, notebook_id, kind, title, url, file_path, chars, active, created_at)
-outputs(id, notebook_id, template, title, body, created_at)
+sources(id, notebook_id, title, kind, origin, path, chars, active, status, error, created_at)
+outputs(id, notebook_id, template, title, content_md, created_at)
 ```
 
 Novo:
@@ -622,14 +623,21 @@ essa checagem, o grafo viraria um desenho plausível de coisas que ninguém diss
 
 **D041 — o conceito é canônico por chave normalizada, e o extrator vê o vocabulário
 que já existe.**
-Normalizar (minúsculas, sem pontuação, espaços e hífens colapsados) resolve
-`OBD-II` / `OBD2` / `obd ii` de graça e sem modelo. O que a normalização **não**
-resolve — `barramento CAN` vs `CAN bus` — fica para a mesclagem manual na UI.
+Normalizar (minúsculas, sem acento, pontuação virando espaço, espaços colapsados)
+resolve as variantes triviais: `OBD-II` / `OBD II` / `obd ii` caem todos em
+`obd ii`.
 
-O truque que evita a maior parte da fragmentação: **antes de extrair, entregamos ao
-modelo a lista dos conceitos que já existem**, com a instrução de reusar o nome. Sem
-isso o grafo fragmenta em variantes e o F6 (embeddings) viraria obrigatório só para
-deduplicar — ou seja, uma fase futura passaria a ser pré-requisito de uma anterior.
+Correção, ao implementar: **`OBD2` NÃO cai junto** — normaliza para `obd2`, que é
+outra chave. Este plano chegou a afirmar que resolvia, e não resolve. Não vou forçar
+equivalência entre dígito e número romano: isso quebraria `ISO 14230-4` e casos
+legítimos de nome distinto.
+
+Quem resolve `OBD2` é a segunda metade da decisão, por isso ela é a que importa:
+**antes de extrair, entregamos ao modelo a lista dos conceitos que já existem**, com
+a instrução de reusar o nome. O modelo vê `OBD-II` na lista e não inventa `OBD2`.
+Sem isso o grafo fragmenta em variantes e o F6 (embeddings) viraria obrigatório só
+para deduplicar — ou seja, uma fase futura passaria a ser pré-requisito de uma
+anterior. O resto é a mesclagem manual na UI.
 
 **D042 — extração é uma ação explícita, não um efeito de adicionar fonte.**
 O roadmap dizia "extração automática ao adicionar fonte". Isso custa chamadas de

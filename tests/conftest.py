@@ -45,7 +45,16 @@ def estado_limpo():
 
     def limpar() -> None:
         with db.connect() as conn:
-            for tabela in ("outputs", "sources", "notebooks"):
+            # Ordem: filhas antes das mães, para não depender do CASCADE.
+            for tabela in (
+                "notes",
+                "edges",
+                "mentions",
+                "concepts",
+                "outputs",
+                "sources",
+                "notebooks",
+            ):
                 conn.execute(f"DELETE FROM {tabela}")  # noqa: S608 (nome fixo)
         for alvo in alvos:
             alvo.unlink(missing_ok=True)

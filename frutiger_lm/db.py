@@ -49,6 +49,63 @@ CREATE TABLE IF NOT EXISTS outputs (
 
 CREATE INDEX IF NOT EXISTS idx_sources_notebook ON sources(notebook_id);
 CREATE INDEX IF NOT EXISTS idx_outputs_notebook ON outputs(notebook_id);
+
+-- --------------------------------------------------------------------------
+-- O grafo (F3). Nó = conceito, aresta = relação, e a menção é o que ancora.
+-- --------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS concepts (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    canonical   TEXT NOT NULL UNIQUE,   -- a chave normalizada: é ela que deduplica
+    aliases     TEXT NOT NULL DEFAULT '[]',
+    kind        TEXT NOT NULL DEFAULT 'conceito',
+    created_at  REAL NOT NULL,
+    updated_at  REAL NOT NULL
+);
+
+-- O mecanismo da ancoragem: cada menção guarda o TRECHO de onde saiu, mais a
+-- origem. Sem o trecho, o grafo seria um desenho plausível de coisas que ninguém
+-- disse — e a conferência é justamente o que o torna confiável.
+--
+-- O CASCADE não é decoração: apagar uma fonte leva as menções dela (D037).
+CREATE TABLE IF NOT EXISTS mentions (
+    id          TEXT PRIMARY KEY,
+    concept_id  TEXT NOT NULL REFERENCES concepts(id)  ON DELETE CASCADE,
+    notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+    source_id   TEXT REFERENCES sources(id)  ON DELETE CASCADE,
+    output_id   TEXT REFERENCES outputs(id)  ON DELETE CASCADE,
+    thread_id   TEXT,                    -- menção vinda de uma conversa
+    message_id  TEXT,
+    excerpt     TEXT NOT NULL,
+    created_at  REAL NOT NULL
+);
+
+-- UNIQUE(a_id, b_id, kind) exige ordem canônica entre a e b, senão (A,B) e (B,A)
+-- entram como duas arestas. A ordenação é feita na inserção, em knowledge.ligar.
+CREATE TABLE IF NOT EXISTS edges (
+    id          TEXT PRIMARY KEY,
+    a_id        TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+    b_id        TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL,
+    weight      INTEGER NOT NULL DEFAULT 1,
+    provenance  TEXT NOT NULL DEFAULT '',
+    created_at  REAL NOT NULL,
+    UNIQUE(a_id, b_id, kind)
+);
+
+CREATE TABLE IF NOT EXISTS notes (
+    id          TEXT PRIMARY KEY,
+    concept_id  TEXT NOT NULL REFERENCES concepts(id)  ON DELETE CASCADE,
+    notebook_id TEXT REFERENCES notebooks(id) ON DELETE CASCADE,
+    body        TEXT NOT NULL,
+    created_at  REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_mentions_concept ON mentions(concept_id);
+CREATE INDEX IF NOT EXISTS idx_mentions_source ON mentions(source_id);
+CREATE INDEX IF NOT EXISTS idx_edges_a ON edges(a_id);
+CREATE INDEX IF NOT EXISTS idx_edges_b ON edges(b_id);
 """
 
 
