@@ -157,6 +157,25 @@ de dados, então isso é configuração, não reescrita.
   gasta contexto acumulado.
 - **As fontes são arquivos de verdade em disco.** Você pode abrir, grepar,
   versionar com git ou jogar num backup sem falar com o app.
+- **Apagar `data/` na mão órfã as sessões no Hermes.** O lado do app é quem
+  guarda o `session_id`; apagar o banco sem passar pelo app deixa as conversas
+  no `state.db` do Hermes sem dono. Apague cadernos pelo botão do app — ou
+  limpe depois com `hermes sessions prune`.
+
+## Desenvolvimento
+
+```bash
+uv sync                 # dependências + ferramentas de dev
+uv run ruff check .     # lint
+uv run pytest           # testes (43, rodam em ~0,2 s, sem rede)
+uv run caderno --reload # servidor com recarga automática
+```
+
+Os testes cobrem o que é nosso: banco, montagem do contexto (incluindo a
+fronteira entre injetar o texto e mandar o agente ler o arquivo), ingestão
+(texto, PDF, detecção de YouTube) e os prompts. Nada neles toca a rede nem o
+motor Hermes — comportamento de LLM não é testável de forma determinística e é
+validado à parte.
 
 ## Licença
 

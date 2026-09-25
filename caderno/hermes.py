@@ -18,7 +18,8 @@ persistido no histórico. É exatamente por onde injetamos as fontes do caderno.
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 
@@ -133,31 +134,31 @@ async def chat_stream(
     if system_message:
         payload["system_message"] = system_message
 
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        async with client.stream(
-            "POST",
-            f"{settings.hermes_url}/api/sessions/{session_id}/chat/stream",
-            headers=_headers(),
-            json=payload,
-        ) as resp:
-            if resp.status_code >= 300:
-                body = (await resp.aread()).decode("utf-8", "replace")
-                raise HermesError(_explain(resp.status_code, body))
+    client = httpx.AsyncClient(timeout=TIMEOUT)
+    async with client, client.stream(
+        "POST",
+        f"{settings.hermes_url}/api/sessions/{session_id}/chat/stream",
+        headers=_headers(),
+        json=payload,
+    ) as resp:
+        if resp.status_code >= 300:
+            body = (await resp.aread()).decode("utf-8", "replace")
+            raise HermesError(_explain(resp.status_code, body))
 
-            event = "message"
-            async for raw in resp.aiter_lines():
-                line = raw.strip()
-                if not line:
-                    continue
-                if line.startswith("event:"):
-                    event = line[6:].strip() or event
-                elif line.startswith("data:"):
-                    chunk = line[5:].strip()
-                    try:
-                        data = json.loads(chunk)
-                    except json.JSONDecodeError:
-                        data = {"raw": chunk}
-                    yield event, data
+        event = "message"
+        async for raw in resp.aiter_lines():
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith("event:"):
+                event = line[6:].strip() or event
+            elif line.startswith("data:"):
+                chunk = line[5:].strip()
+                try:
+                    data = json.loads(chunk)
+                except json.JSONDecodeError:
+                    data = {"raw": chunk}
+                yield event, data
 
 
 # --------------------------------------------------------------------------- #
@@ -186,4 +187,4 @@ async def complete(
     try:
         return data["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError):
-        raise HermesError(f"Resposta inesperada do motor: {json.dumps(data)[:300]}")
+        raise HermesError(f"Resposta inesperada do motor: {json.dumps(data)[:300]}") from None

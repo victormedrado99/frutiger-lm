@@ -119,15 +119,6 @@
     if (el) el.hidden = true;
   }
 
-  function debounce(fn, ms) {
-    var t;
-    return function () {
-      var args = arguments, self = this;
-      clearTimeout(t);
-      t = setTimeout(function () { fn.apply(self, args); }, ms);
-    };
-  }
-
   global.Caderno = {
     api: api,
     toast: toast,
@@ -138,6 +129,5 @@
     postStream: postStream,
     openModal: openModal,
     closeModal: closeModal,
-    debounce: debounce,
   };
 })(window);

@@ -5,16 +5,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from contextlib import asynccontextmanager
+import shutil
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, hermes, ingest, prompts
-from .config import PROJECT_ROOT, settings
+from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("caderno")
@@ -83,7 +85,7 @@ async def index() -> FileResponse:
 
 
 @app.get("/n/{notebook_id}", include_in_schema=False)
-async def notebook_page(notebook_id: str) -> FileResponse:
+async def notebook_page(notebook_id: str) -> FileResponse:  # noqa: ARG001 (rota exige o nome)
     return FileResponse(STATIC_DIR / "notebook.html")
 
 
@@ -159,12 +161,10 @@ async def patch_notebook(notebook_id: str, payload: dict[str, Any] = Body(...)) 
         description=payload.get("description"),
     )
     if payload.get("title"):
-        session_id = notebook.get("hermes_session_id") if notebook else None
+        session_id = notebook.get("hermes_session_id")
         if session_id:
-            try:
+            with suppress(hermes.HermesError):
                 await hermes.rename_session(session_id, notebook["title"])
-            except hermes.HermesError:
-                pass
     return notebook
 
 
@@ -177,17 +177,7 @@ async def delete_notebook(notebook_id: str) -> dict[str, Any]:
         except hermes.HermesError as exc:
             log.warning("erro ao apagar sessão: %s", exc)
     db.delete_notebook(notebook_id)
-    directory = settings.notebook_dir(notebook_id)
-    if directory.exists():
-        for path in sorted(directory.rglob("*"), reverse=True):
-            try:
-                path.unlink() if path.is_file() else path.rmdir()
-            except OSError:
-                pass
-        try:
-            directory.rmdir()
-        except OSError:
-            pass
+    shutil.rmtree(settings.notebook_dir(notebook_id), ignore_errors=True)
     return {"deleted": notebook_id}
 
 
@@ -254,10 +244,8 @@ async def delete_source(source_id: str) -> dict[str, Any]:
     if source is None:
         raise HTTPException(404, "Fonte não encontrada")
     if source.get("path"):
-        try:
+        with suppress(OSError):
             Path(source["path"]).unlink(missing_ok=True)
-        except OSError:
-            pass
     db.delete_source(source_id)
     return {"deleted": source_id}
 
@@ -338,10 +326,8 @@ async def reset_chat(notebook_id: str) -> dict[str, Any]:
     notebook = _notebook_or_404(notebook_id)
     old = notebook.get("hermes_session_id")
     if old:
-        try:
+        with suppress(hermes.HermesError):
             await hermes.delete_session(old)
-        except hermes.HermesError:
-            pass
     session_id = await hermes.create_session(notebook["title"])
     db.update_notebook(notebook_id, hermes_session_id=session_id)
     return {"session_id": session_id}
@@ -444,5 +430,5 @@ async def delete_output(output_id: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 @app.exception_handler(hermes.HermesError)
-async def hermes_error_handler(request: Request, exc: hermes.HermesError) -> JSONResponse:
+async def hermes_error_handler(_request: Request, exc: hermes.HermesError) -> JSONResponse:
     return JSONResponse({"detail": str(exc)}, status_code=502)

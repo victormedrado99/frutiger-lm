@@ -56,17 +56,6 @@
     return t.split("|").map(function (c) { return c.trim(); });
   }
 
-  function isBlockStart(line) {
-    return (
-      /^\s*#{1,6}\s+/.test(line) ||
-      /^\s*>/.test(line) ||
-      /^\s*```/.test(line) ||
-      /^\s*([-*+]|\d+[.)])\s+/.test(line) ||
-      /^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line) ||
-      line.indexOf("|") !== -1
-    );
-  }
-
   function render(src) {
     var text = String(src == null ? "" : src).replace(/\r\n?/g, "\n");
     var lines = text.split("\n");
@@ -205,15 +194,13 @@
         } else {
           html.push("</li>");
         }
-        // continuação em linhas seguintes indentadas
+        // continuação: linhas indentadas que não abrem um novo item
         var content = item[3];
         i++;
         while (
           i < lines.length &&
-          lines[i].trim() &&
           /^\s{2,}\S/.test(lines[i]) &&
-          !/^\s*([-*+]|\d+[.)])\s+/.test(lines[i]) &&
-          !isBlockStart(lines[i].replace(/^\s+/, "#"))
+          !/^\s*([-*+]|\d+[.)])\s+/.test(lines[i])
         ) {
           content += " " + lines[i].trim();
           i++;
@@ -233,11 +220,4 @@
   }
 
   global.renderMarkdown = render;
-  global.mdPlain = function (src) {
-    return String(src || "")
-      .replace(/```[\s\S]*?```/g, " ")
-      .replace(/[#*_>`~|-]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  };
 })(window);

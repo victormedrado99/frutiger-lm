@@ -6,10 +6,6 @@
   var grid = document.getElementById("grid");
   var subtitle = document.getElementById("subtitle");
 
-  function iconFor(kind) {
-    return { pdf: "PDF", url: "LINK", youtube: "VÍDEO", text: "TEXTO" }[kind] || kind;
-  }
-
   function cardHtml(nb) {
     return (
       '<div class="card" data-id="' + nb.id + '">' +

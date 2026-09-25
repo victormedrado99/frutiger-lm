@@ -7,8 +7,8 @@ lê esses arquivos (ou recebe o texto inline, se o caderno for pequeno).
 from __future__ import annotations
 
 import asyncio
+import io
 import re
-import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -31,13 +31,6 @@ class IngestError(RuntimeError):
 # --------------------------------------------------------------------------- #
 # Utilidades
 # --------------------------------------------------------------------------- #
-
-def slug(text: str, *, limit: int = 60) -> str:
-    text = unicodedata.normalize("NFKD", text or "")
-    text = text.encode("ascii", "ignore").decode("ascii").lower()
-    text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
-    return (text[:limit].rstrip("-")) or "fonte"
-
 
 def clean_text(text: str) -> str:
     text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
@@ -183,8 +176,6 @@ def _fetch_youtube_text(url: str) -> tuple[str, str]:
 
 def _extract_pdf_text(data: bytes) -> tuple[str, str]:
     try:
-        import io
-
         from pypdf import PdfReader
 
         reader = PdfReader(io.BytesIO(data))
@@ -204,10 +195,11 @@ def _extract_pdf_text(data: bytes) -> tuple[str, str]:
         except Exception:
             pass
         text = clean_text("\n\n".join(pages))
-        if len(text) < 40:
+        if len(text) < 20:
             raise IngestError(
-                "O PDF não tem texto extraível (provavelmente é digitalizado/imagem). "
-                "Seria preciso OCR."
+                f"O PDF devolveu quase nada de texto ({len(text)} caracteres), o que normalmente "
+                "significa digitalizado/imagem e precisaria de OCR. Se o documento for curto de "
+                "verdade, cole o texto como fonte de texto."
             )
         return title, text
     except IngestError:
@@ -220,15 +212,20 @@ def _extract_pdf_text(data: bytes) -> tuple[str, str]:
 # Persistência
 # --------------------------------------------------------------------------- #
 
-def _write_source_file(notebook_id: str, source_id: str, title: str, origin: str, text: str) -> Path:
+def _write_source_file(
+    notebook_id: str, source_id: str, title: str, origin: str, text: str
+) -> tuple[Path, int]:
+    """Grava a fonte e devolve (caminho, tamanho em caracteres do arquivo).
+
+    O tamanho devolvido é o que vai para a coluna `chars`, para que
+    `context_mode` e `build_context` meçam exatamente a mesma coisa.
+    """
     directory = settings.sources_dir(notebook_id)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{source_id}.txt"
-    header = f"# {title}\n\n"
-    if origin:
-        header += f"Origem: {origin}\n\n"
-    path.write_text(header + text, encoding="utf-8")
-    return path
+    content = f"# {title}\n\n" + (f"Origem: {origin}\n\n" if origin else "") + text
+    path.write_text(content, encoding="utf-8")
+    return path, len(content)
 
 
 async def add_source(
@@ -243,40 +240,42 @@ async def add_source(
 ) -> dict[str, Any]:
     """Ingere uma fonte e devolve a linha criada."""
     kind = (kind or "").strip().lower()
+    origin = origin.strip()
+    title = title.strip()
+
+    # um link de vídeo é detectado sozinho: o usuário não precisa escolher
+    if kind == "url" and is_youtube(origin):
+        kind = "youtube"
 
     if kind == "text":
         body = clean_text(text)
         if not body:
             raise IngestError("Texto vazio.")
-        title = title.strip() or (body[:60] + ("…" if len(body) > 60 else ""))
+        title = title or body[:60] + ("…" if len(body) > 60 else "")
 
     elif kind == "url":
-        origin = origin.strip()
         if not origin:
             raise IngestError("Informe o link.")
-        if is_youtube(origin):
-            kind = "youtube"
-        else:
-            fetched_title, body = await asyncio.to_thread(_fetch_url_text, origin)
-            title = title.strip() or fetched_title
+        fetched_title, body = await asyncio.to_thread(_fetch_url_text, origin)
+        title = title or fetched_title
 
-    if kind == "youtube":
-        origin = origin.strip()
+    elif kind == "youtube":
+        if not origin:
+            raise IngestError("Informe o link do vídeo.")
         fetched_title, body = await asyncio.to_thread(_fetch_youtube_text, origin)
-        title = title.strip() or fetched_title
+        title = title or fetched_title
 
-    if kind == "pdf":
+    elif kind == "pdf":
         if not pdf_bytes:
             raise IngestError("Nenhum arquivo enviado.")
         extracted_title, body = await asyncio.to_thread(_extract_pdf_text, pdf_bytes)
-        title = title.strip() or extracted_title or Path(pdf_name).stem or "Documento PDF"
-        kind = "pdf"
+        title = title or extracted_title or Path(pdf_name).stem or "Documento PDF"
 
-    if kind not in {"text", "url", "youtube", "pdf"}:
+    else:
         raise IngestError(f"Tipo de fonte desconhecido: {kind!r}")
 
     source_id = db.new_id("src")
-    path = _write_source_file(notebook_id, source_id, title, origin or pdf_name, body)
+    path, chars = _write_source_file(notebook_id, source_id, title, origin or pdf_name, body)
 
     return db.create_source(
         notebook_id,
@@ -285,5 +284,5 @@ async def add_source(
         kind=kind,
         origin=origin or pdf_name,
         path=str(path),
-        chars=len(body),
+        chars=chars,
     )

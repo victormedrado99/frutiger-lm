@@ -223,7 +223,6 @@
   function bubble(role, html) {
     var wrap = document.createElement("div");
     wrap.className = "msg " + (role === "assistant" ? "assistant" : "user");
-    var initial = role === "assistant" ? "◆" : "você";
     wrap.innerHTML =
       '<div class="msg-avatar">' + (role === "assistant" ? "◆" : "•") + "</div>" +
       '<div class="msg-content">' +
@@ -291,7 +290,6 @@
     var node = bubble("assistant", '<span class="typing"></span>');
     var body = node.querySelector(".body");
     var buffer = "";
-    var painted = false;
     var pending = false;
     var stick = atBottom();
 
@@ -314,7 +312,6 @@
       await C.readSSE(resp, function (name, data) {
         if (name === "assistant.delta") {
           buffer += data.delta || "";
-          painted = true;
           paint();
         } else if (name === "tool.started" || name === "tool.completed") {
           if (name === "tool.started") {
@@ -327,11 +324,9 @@
           body.innerHTML = window.renderMarkdown(buffer) +
             '<p style="color:var(--danger)">⚠ ' + C.escapeHtml(data.message || "erro") + "</p>";
         } else if (name === "done") {
-          if (!painted && !buffer) {
-            body.innerHTML = '<span style="color:var(--muted)">(o motor não devolveu texto)</span>';
-          } else {
-            body.innerHTML = window.renderMarkdown(buffer);
-          }
+          body.innerHTML = buffer
+            ? window.renderMarkdown(buffer)
+            : '<span style="color:var(--muted)">(o motor não devolveu texto)</span>';
         }
       });
     } catch (err) {

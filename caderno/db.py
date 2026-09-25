@@ -6,11 +6,10 @@ do uvicorn. WAL ligado para leitura concorrente durante escrita.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import time
 import uuid
-from typing import Any, Iterable
+from typing import Any
 
 from .config import settings
 
@@ -95,7 +94,7 @@ def create_notebook(title: str, description: str = "") -> dict[str, Any]:
 
 def list_notebooks() -> list[dict[str, Any]]:
     with connect() as conn:
-        rows = _rows(conn.execute(
+        return _rows(conn.execute(
             """
             SELECT n.*,
                    (SELECT COUNT(*) FROM sources s WHERE s.notebook_id = n.id) AS source_count,
@@ -104,7 +103,6 @@ def list_notebooks() -> list[dict[str, Any]]:
             ORDER BY n.updated_at DESC
             """
         ))
-    return rows
 
 
 def get_notebook(notebook_id: str) -> dict[str, Any] | None:
@@ -198,17 +196,6 @@ def set_source_active(source_id: str, active: bool) -> dict[str, Any] | None:
     return get_source(source_id)
 
 
-def set_source_status(source_id: str, status: str, error: str = "", chars: int | None = None) -> None:
-    with connect() as conn:
-        if chars is None:
-            conn.execute("UPDATE sources SET status = ?, error = ? WHERE id = ?", (status, error, source_id))
-        else:
-            conn.execute(
-                "UPDATE sources SET status = ?, error = ?, chars = ? WHERE id = ?",
-                (status, error, chars, source_id),
-            )
-
-
 def delete_source(source_id: str) -> str | None:
     src = get_source(source_id)
     if not src:
@@ -257,19 +244,13 @@ def delete_output(output_id: str) -> None:
 # Contexto para o agente
 # --------------------------------------------------------------------------- #
 
-def read_source_text(source: dict[str, Any], *, limit: int | None = None) -> str:
+def read_source_text(source: dict[str, Any]) -> str:
     """Lê o .txt extraído da fonte. Tolerante a arquivo ausente."""
-    path = source.get("path") or ""
-    if not path:
-        return ""
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            text = fh.read()
+        with open(source.get("path") or "", encoding="utf-8", errors="replace") as fh:
+            return fh.read()
     except OSError:
         return ""
-    if limit is not None and len(text) > limit:
-        return text[:limit]
-    return text
 
 
 def build_context(
@@ -282,8 +263,7 @@ def build_context(
     Caso contrário devolve só o índice e o agente consulta os arquivos com as
     tools de leitura dele (read_file / search_files / terminal).
     """
-    sources: Iterable[dict[str, Any]] = list_sources(notebook["id"], active_only=True)
-    sources = list(sources)
+    sources = list_sources(notebook["id"], active_only=True)
     if not sources:
         return "", []
 
@@ -295,7 +275,6 @@ def build_context(
         lines.append("## Conteúdo das fontes (íntegra)\n")
         for i, (src, text) in enumerate(texts, 1):
             lines.append(f"### [{i}] {src['title']}  ({src['kind']})\n{text}\n")
-        mode = "inline"
     else:
         lines.append(
             "## Fontes em disco\n"
@@ -305,14 +284,17 @@ def build_context(
         )
         for i, (src, text) in enumerate(texts, 1):
             lines.append(f"- [{i}] {src['title']}  ({src['kind']}, {len(text)} chars) -> {src['path']}")
-        mode = "files"
 
     return "\n".join(lines), sources
 
 
 def context_mode(notebook: dict[str, Any], *, inline_limit: int) -> str:
+    """Mesma régua que build_context usa, sem tocar no disco.
+
+    `chars` é gravado como o tamanho exato do arquivo da fonte, então somar a
+    coluna dá o mesmo total que build_context lê.
+    """
     sources = list_sources(notebook["id"], active_only=True)
-    total = sum(read_source_text(s, limit=inline_limit + 1).__len__() for s in sources)
     if not sources:
         return "empty"
-    return "inline" if total <= inline_limit else "files"
+    return "inline" if sum(s["chars"] for s in sources) <= inline_limit else "files"
