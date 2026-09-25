@@ -76,6 +76,7 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D035 | Ferramenta que lê arquivo **limita a própria saída** e diz onde parou | DECIDIDO |
 | D036 | Provedor de `web_search` do agente (SearxNG próprio? API paga? DuckDuckGo?) | ABERTO |
 | D037 | Apagar caderno/fonte apaga os arquivos: a invariante mora no `db`, não na rota | DECIDIDO |
+| D038 | A tradução LangGraph → eventos da interface mora em `engine/agent.py`; a UI não sabe o que é LangGraph | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -262,6 +263,30 @@ em qualquer lugar do disco.
 A regra geral, que vale além deste caso: **se a operação tem um nome, ela tem um
 dono.** "Apagar caderno" é uma coisa, e não duas metades em dois arquivos.
 
+### D038 — a interface não sabe o que é LangGraph
+
+Trocar o motor não mexeu **em uma linha de UI**. O `notebook.js` continua
+consumindo `run.started`, `assistant.delta`, `tool.started`, `assistant.completed`,
+`error` e `done` — os mesmos eventos de antes. Quem traduz é `agent.eventos()`,
+e é o único lugar que conhece `astream_events`, `on_chat_model_stream` e
+`on_tool_start`.
+
+Os nomes de evento do LangGraph foram **descobertos rodando** (`astream_events(v2)`
+com o modelo falso), não deduzidos da documentação. Vale registrar o método: uma
+sonda que imprime o evento, as chaves do `data` e o tipo do chunk custa um minuto e
+elimina o ciclo de "escreve, roda, adivinha por que não apareceu na tela".
+
+Dois detalhes que a tradução precisa acertar, e os dois têm teste:
+
+1. **Chunk de conteúdo vazio é tool call, não texto.** Sem filtrar, o front recebe
+   delta vazio. É o chunk que carrega `tool_call_chunks`.
+2. **O agente faz duas chamadas ao modelo** (a do tool call e a final), então o
+   texto chega em dois pedaços. Na prova com modelo real isso apareceu como texto
+   colado ao vivo (`"...na fonte.**ZULU-90210**"`) e como duas bolhas ao recarregar
+   — a tela mudava conforme o momento. Agora o stream emenda com linha em branco e
+   o histórico junta numa bolha só, e há teste afirmando que os dois textos são
+   **idênticos**.
+
 ---
 
 ## 3. Arquitetura em camadas
@@ -410,7 +435,7 @@ convivem com as nossas.
 
 Cada fase é utilizável sozinha. Nada de fase que só serve se a próxima existir.
 
-### F1 — Alicerce (motor LangGraph)  ← EM ANDAMENTO
+### F1 — Alicerce (motor LangGraph)  ← CONCLUÍDA
 - [x] rename completo para Frutiger LM (pacote, env, unit, banco) — D026
 - [x] dependências pinadas: `langchain==1.4.2`, `langgraph==1.2.12`,
       `langchain-openai==1.6.6`, `langgraph-checkpoint-sqlite==3.1.1` (D022)
@@ -422,16 +447,19 @@ Cada fase é utilizável sozinha. Nada de fase que só serve se a próxima exist
       1 `thread_id`, ligado no lifespan do app (D019, D033)
 - [x] `engine/tools/leitura.py`: `listar_fontes`, `ler_fonte`, `buscar_nas_fontes`
       presas ao caderno (D034) e com saída limitada (D035)
-- [ ] `engine/tools/web.py`: `web_extract` (reusa o `ingest`) e `web_search`
-      (depende de decisão sobre provedor de busca — D036)
+- [x] `engine/tools/web.py`: `web_extract` (reusa o `ingest`) — o `web_search`
+      fica para quando houver provedor (D036)
 - [x] `engine/agent.py`: `create_agent` com `system_prompt` nosso e catálogo curado
       (D018, D023, D025)
 - [x] prompt e contexto falando a língua do motor: `BASE_RULES` e
       `db.build_context` mencionavam `read_file`/`search_files`/`grep` e entregavam
       **caminho de arquivo**; agora citam as ferramentas do motor e entregam **id**
-- [ ] rotas de chat do app passando por `engine/` em vez do Hermes
-- [ ] remover a configuração do API server do Hermes
-- [ ] **Critério de pronto:** o chat do caderno funciona **sem Hermes instalado**
+- [x] rotas de chat do app passando por `engine/` em vez do Hermes — `agent.eventos()`
+      traduz LangGraph → os eventos que a UI já consumia (D038)
+- [x] `hermes.py` **apagado**, com os testes dele, as variáveis `HERMES_*` da config,
+      o handler de erro da rota e a coluna `hermes_session_id` (com migração)
+- [x] **Critério de pronto:** o chat funciona **sem Hermes instalado** — provado com
+      modelo real, pelo serviço, com a interface inalterada
 
 ### F2 — Home: grafo global + chat global
 - [ ] `engine/tools/cadernos.py`: `buscar_cadernos`
@@ -566,12 +594,16 @@ OK  astream / astream_events / aget_state / aget_state_history
 ATENÇÃO  langgraph.prebuilt.create_react_agent DEPRECIADO (sai na v2)
 ```
 
-Primeiro trabalho: **F1**, em andamento. Já entregues nesta fase: dependências
-pinadas, `model_store.py`, `engine/llm.py`, `engine/fake.py`, e a UI de
-configuração de modelo (botão "Modelo" na tela inicial) com rota de teste de
-conexão. Próximo: `engine/checkpoint.py` (D019), depois as ferramentas de leitura
-e o `agent.py`.
+**F1 está concluída.** O app não depende mais de nenhum motor externo: o agente
+LangGraph vive dentro dele, o histórico é o nosso checkpointer, e o Hermes foi
+removido do código, da configuração e do unit do systemd.
 
-O Hermes continua sendo o motor **até o último item de F1**, de propósito: o app
-está no ar e em uso, e não se derruba o que funciona para construir o que ainda
-não existe.
+O que ficou de fora, por decisão: `web_search` (espera a D036) e o `AGENTS.md`.
+
+**Próximo: F2** — `engine/tools/cadernos.py` (buscar entre cadernos), o cache de
+índices, a barra inferior que expande na home para o chat global, e o botão
+"virar conhecimento" numa conclusão da conversa.
+
+A ordem importa menos do que parece: cada fase é utilizável sozinha. Mas vale
+lembrar que F3 (o grafo) é a tese do produto — é o que o Frutiger LM tem e o
+NotebookLM não tem. Se houver pressa, é para lá que ela deveria ir.

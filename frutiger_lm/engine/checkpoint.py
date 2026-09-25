@@ -84,3 +84,7 @@ class Checkpoints:
                 "(engine.checkpoint.Checkpoints.abrir)."
             )
         return self._saver
+
+    async def apagar_conversa(self, notebook_id: str) -> None:
+        """Esquece a conversa deste caderno — o "limpar chat" da interface."""
+        await self.saver.adelete_thread(thread_id(notebook_id))

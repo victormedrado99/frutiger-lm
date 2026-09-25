@@ -14,9 +14,10 @@ ferramenta inexistente e responde mal, que é bem pior.
 from __future__ import annotations
 
 import asyncio
+import json
 
 from frutiger_lm import db, ingest
-from frutiger_lm.engine import agent, checkpoint, fake
+from frutiger_lm.engine import agent, checkpoint, fake, llm
 from frutiger_lm.engine.tools.leitura import ferramentas_de_leitura
 from frutiger_lm.prompts import BASE_RULES, build_notebook_prompt
 
@@ -200,3 +201,136 @@ def test_a_numeracao_das_fontes_casa_com_a_do_contexto():
     assert "### [1] Primeira" in contexto
     assert "### [2] Terceira" in contexto
     assert "### [2] Segunda" not in contexto
+
+
+# ------------------------------------------------- a rota de conversa (SSE)
+
+
+def test_o_chat_emite_exatamente_o_que_a_interface_espera(cliente, monkeypatch):
+    """O contrato da interface, verificado ponta a ponta num só lugar.
+
+    A interface consome `assistant.delta` (concatena), `tool.started` (mostra o
+    rodapé da ferramenta), `assistant.completed` (substitui o texto), `error` e
+    `done`. Se o motor mudar um nome de evento, isto quebra — que é o ponto.
+    """
+    nb = caderno("Conversa")
+    fonte(nb, "O codigo do equipamento e BRAVO-7741.", "Manual")
+    monkeypatch.setattr(
+        llm,
+        "atual",
+        lambda: fake.com_ferramenta(
+            "buscar_nas_fontes", {"termo": "BRAVO-7741"}, "achei o codigo"
+        ),
+    )
+
+    resp = cliente.post(f"/api/notebooks/{nb}/chat", json={"input": "qual e o codigo?"})
+
+    assert resp.status_code == 200
+    corpo = resp.text
+    for evento in (
+        "run.started",
+        "tool.started",
+        "assistant.delta",
+        "assistant.completed",
+        "done",
+    ):
+        assert f"event: {evento}" in corpo, f"faltou o evento {evento}"
+
+    assert corpo.index("event: run.started") < corpo.index("event: assistant.completed")
+    assert corpo.index("event: tool.started") < corpo.index("event: assistant.completed")
+    assert "buscar_nas_fontes" in corpo, "a interface não teria o que mostrar no rodapé"
+    assert "achei o codigo" in corpo
+    # o delta veio partido: streaming de verdade, não um bloco só
+    assert corpo.count("event: assistant.delta") >= 2
+    assert corpo.rstrip().endswith("data: {}")
+
+
+def test_o_texto_antes_e_depois_da_ferramenta_nao_cola(cliente, monkeypatch):
+    """O defeito que só apareceu na prova com modelo real.
+
+    O agente faz DUAS chamadas ao modelo (a do tool call, com um "vou procurar"
+    antes, e a final). Ao vivo os dois textos chegavam colados
+    ("...na fonte.**ZULU-90210**") e, ao recarregar, vinham como duas bolhas de
+    assistente — ou seja, a tela mudava de forma conforme o momento.
+
+    Este teste prende os dois lados: o stream emenda com linha em branco e o
+    histórico junta numa bolha só, com o mesmo texto.
+    """
+    nb = caderno("Emenda")
+    fonte(nb, "O codigo e BRAVO-7741.", "Manual")
+    monkeypatch.setattr(
+        llm,
+        "atual",
+        lambda: fake.com_ferramenta(
+            "buscar_nas_fontes",
+            {"termo": "BRAVO-7741"},
+            resposta_final="achei",
+            antes="vou procurar",
+        ),
+    )
+
+    resp = cliente.post(f"/api/notebooks/{nb}/chat", json={"input": "qual?"})
+
+    # o que a interface recebe, remontado como ela remonta
+    deltas = [
+        json.loads(linha[5:])["delta"]
+        for linha in resp.text.splitlines()
+        if linha.startswith("data:") and "delta" in linha
+    ]
+    ao_vivo = "".join(deltas)
+    assert ao_vivo == "vou procurar\n\nachei", f"texto colado ou fora de ordem: {ao_vivo!r}"
+
+    # e o que aparece ao recarregar: uma bolha só, com exatamente o mesmo texto
+    historico = cliente.get(f"/api/notebooks/{nb}/messages").json()
+    assert [m["role"] for m in historico] == ["user", "assistant"], "a resposta veio fatiada"
+    assert historico[1]["content"] == ao_vivo, "o recarregado difere do ao vivo"
+
+
+def test_o_chat_avisa_quando_nao_ha_modelo_configurado(cliente):
+    """Sem modelo, o app não finge que sabe responder."""
+    nb = caderno("Sem modelo")
+    resp = cliente.post(f"/api/notebooks/{nb}/chat", json={"input": "oi"})
+
+    assert resp.status_code == 200  # o stream já começou; o erro vai dentro dele
+    assert "event: error" in resp.text
+    assert "não configurado" in resp.text
+
+
+def test_o_historico_vem_do_checkpointer(cliente, monkeypatch):
+    """A tela mostra o que o agente lembra — mesma fonte, D019."""
+    nb = caderno("Historico")
+    fonte(nb, "material", "Fonte")
+    monkeypatch.setattr(llm, "atual", lambda: fake.responde("resposta do teste"))
+
+    cliente.post(f"/api/notebooks/{nb}/chat", json={"input": "primeira pergunta"})
+    mensagens = cliente.get(f"/api/notebooks/{nb}/messages").json()
+
+    assert [m["role"] for m in mensagens] == ["user", "assistant"]
+    assert mensagens[0]["content"] == "primeira pergunta"
+    assert mensagens[1]["content"] == "resposta do teste"
+
+
+def test_limpar_a_conversa_apaga_o_historico(cliente, monkeypatch):
+    nb = caderno("Limpar")
+    fonte(nb, "material", "Fonte")
+    monkeypatch.setattr(llm, "atual", lambda: fake.responde("oi"))
+
+    cliente.post(f"/api/notebooks/{nb}/chat", json={"input": "pergunta"})
+    assert cliente.get(f"/api/notebooks/{nb}/messages").json(), "deveria ter conversa"
+
+    assert cliente.delete(f"/api/notebooks/{nb}/chat").status_code == 200
+    assert cliente.get(f"/api/notebooks/{nb}/messages").json() == []
+
+    # e as fontes continuam lá: limpar conversa não mexe no caderno
+    assert len(db.list_sources(nb)) == 1
+
+
+def test_apagar_o_caderno_leva_a_conversa_junto(cliente, monkeypatch):
+    """Caderno apagado não pode deixar histórico no checkpoints.db."""
+    nb = caderno("Vai embora")
+    fonte(nb, "material", "Fonte")
+    monkeypatch.setattr(llm, "atual", lambda: fake.responde("oi"))
+
+    cliente.post(f"/api/notebooks/{nb}/chat", json={"input": "pergunta"})
+    assert cliente.delete(f"/api/notebooks/{nb}").status_code == 200
+    assert cliente.get(f"/api/notebooks/{nb}/messages").status_code == 404

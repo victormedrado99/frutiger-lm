@@ -57,3 +57,31 @@ def resolve() -> ModelConfig:
 def atual() -> BaseChatModel:
     """O modelo que o app deve usar agora."""
     return build(resolve())
+
+
+def explicar(exc: Exception) -> str:
+    """Traduz a falha do provedor no que a pessoa precisa fazer.
+
+    Existe porque os dois erros que mais acontecem — servidor local desligado e
+    chave recusada — chegam como texto técnico. "Connection error." não diz o que
+    fazer; "o LM Studio costuma ouvir em :1234" diz.
+
+    Devolve a frase já começando com travessão, para ser apensada à mensagem.
+    """
+    cfg = load()
+    texto = str(exc).lower()
+
+    if any(p in texto for p in ("connection", "refused", "unreachable", "getaddrinfo")):
+        if cfg.precisa_de_chave:
+            return f" — não alcancei {cfg.base_url}. Confira o endereço e a conexão."
+        return (
+            " — o servidor local não respondeu. O LM Studio costuma ouvir em "
+            ":1234 e o llama.cpp em :8080; confira se está rodando."
+        )
+    if "401" in texto or "incorrect api key" in texto or "unauthorized" in texto:
+        return " — a chave foi recusada. Confira se ela está completa e ativa no provedor."
+    if "404" in texto:
+        return " — o endereço respondeu, mas o modelo não existe nele. Confira o nome do modelo."
+    if "insufficient" in texto or "quota" in texto or "balance" in texto:
+        return " — a conta do provedor recusou por saldo ou cota."
+    return ""

@@ -42,13 +42,15 @@ def _env_int(name: str, default: int) -> int:
 
 @dataclass(frozen=True)
 class Settings:
-    hermes_url: str
-    hermes_key: str
-    session_key: str
+    """Config do processo. O que é do **modelo** mora em `model_store` (D030).
+
+    Aqui só fica o que é do app: onde ficam os dados, em que porta ele fala e
+    quanto de contexto vale a pena inlinar.
+    """
+
     data_dir: Path
     port: int
     inline_limit: int
-    output_model: str
 
     @property
     def db_path(self) -> Path:
@@ -74,13 +76,9 @@ def load_settings() -> Settings:
         data_dir = (PROJECT_ROOT / data_dir).resolve()
 
     settings = Settings(
-        hermes_url=_env("HERMES_URL", "http://127.0.0.1:8642").rstrip("/"),
-        hermes_key=_env("HERMES_KEY"),
-        session_key=_env("FRUTIGER_SESSION_KEY", "frutiger:local:"),
         data_dir=data_dir,
         port=_env_int("FRUTIGER_PORT", 8765),
         inline_limit=_env_int("FRUTIGER_INLINE_LIMIT", 24000),
-        output_model=_env("FRUTIGER_OUTPUT_MODEL"),
     )
     settings.ensure_dirs()
     return settings

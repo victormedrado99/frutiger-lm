@@ -1,13 +1,13 @@
 [Unit]
 Description=Frutiger LM - notebooks de estudo com fontes, grafo de conhecimento e outputs
-# After= ordena (o motor sobe antes), mas NAO use Wants=hermes-gateway.service
-# aqui: o gateway pode ter sido iniciado fora do systemd (via `hermes gateway
-# restart`), e um Wants= faz o app disparar tentativas de start que falham com
-# "Gateway already running" e entram em loop de restart.
+# O app NAO depende mais de nenhum motor externo: o agente LangGraph vive dentro
+# dele (F1 concluida). Por isso nao ha After=hermes-gateway.service nem Wants=.
 #
-# Esta dependencia do gateway desaparece na F1, quando o motor passa a ser o
-# agente LangGraph proprio do app (PROJETO.md).
-After=network-online.target hermes-gateway.service
+# Isso tambem elimina por construcao a armadilha antiga: com Wants= num servico
+# que pode ter sido iniciado fora do systemd (via `hermes gateway restart`), cada
+# start do app disparava um start do gateway que falhava com "Gateway already
+# running" e entrava em loop de restart.
+After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0
 

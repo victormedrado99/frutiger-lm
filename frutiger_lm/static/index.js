@@ -44,30 +44,28 @@
     var pill = document.getElementById("engine-pill");
     try {
       var s = await C.api("/api/status");
-      if (!s.engine || !s.engine.ok) {
-        pill.className = "pill bad";
-        pill.textContent = "motor fora do ar";
-        pill.title = "O API server do Hermes não respondeu em " + s.engine_url;
-      } else if (!s.auth_ok) {
-        pill.className = "pill bad";
-        pill.textContent = "chave recusada";
-        pill.title = s.auth_error || "HERMES_KEY não confere com o API_SERVER_KEY.";
-        C.toast(s.auth_error || "A chave do motor foi recusada.", "err", 12000);
-      } else {
+      var m = s.model || {};
+      // O motor agora é aqui dentro, então a pastilha fala do MODELO — não de um
+      // serviço externo. "motor fora do ar" não existe mais como estado.
+      if (m.configured) {
         pill.className = "pill ok";
-        pill.textContent = "motor ok · " + s.engine_url.replace(/^https?:\/\//, "");
-        pill.title = "Motor respondendo e autenticado.";
+        pill.textContent = "modelo: " + (m.name || "pronto");
+        pill.title = "Modelo configurado em " + (m.base_url || "?");
+      } else {
+        pill.className = "pill bad";
+        pill.textContent = "sem modelo";
+        pill.title = "Clique em Modelo para escolher o provedor e colocar a sua chave.";
       }
-      // Indicador do modelo: é o que a pessoa vai configurar no botão ao lado.
       var bm = document.getElementById("btn-model");
-      bm.classList.toggle("model-on", !!s.model_configured);
-      bm.classList.toggle("model-off", !s.model_configured);
-      bm.title = s.model_configured
-        ? "Modelo configurado"
+      bm.classList.toggle("model-on", !!m.configured);
+      bm.classList.toggle("model-off", !m.configured);
+      bm.title = m.configured
+        ? "Modelo configurado — clique para trocar"
         : "Nenhum modelo configurado — clique para colocar a sua chave";
     } catch (err) {
       pill.className = "pill bad";
-      pill.textContent = "motor inacessível";
+      pill.textContent = "app sem resposta";
+      pill.title = err.message;
     }
   }
 

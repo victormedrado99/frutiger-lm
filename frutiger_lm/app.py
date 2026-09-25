@@ -10,13 +10,13 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, hermes, ingest, model_store, prompts
+from . import db, ingest, model_store, prompts
 from .config import settings
-from .engine import checkpoint, llm
+from .engine import agent, checkpoint, llm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("frutiger")
@@ -37,10 +37,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     db.init_db()
     await checkpoints.abrir()
     log.info(
-        "Frutiger LM em %s | motor: %s | dados: %s",
+        "Frutiger LM em %s | dados: %s | modelo: %s",
         settings.port,
-        settings.hermes_url,
         settings.data_dir,
+        model_store.load().model or "(nao configurado)",
     )
     try:
         yield
@@ -60,20 +60,6 @@ def _notebook_or_404(notebook_id: str) -> dict[str, Any]:
     if notebook is None:
         raise HTTPException(404, "Caderno não encontrado")
     return notebook
-
-
-async def _ensure_session(notebook: dict[str, Any], *, force_new: bool = False) -> str:
-    """Garante que o caderno tenha uma sessão viva no motor."""
-    session_id = None if force_new else notebook.get("hermes_session_id")
-    if session_id:
-        try:
-            await hermes.list_messages(session_id)
-            return session_id
-        except hermes.HermesError as exc:
-            log.warning("sessão %s inválida (%s) — recriando", session_id, exc)
-    session_id = await hermes.create_session(notebook["title"])
-    db.update_notebook(notebook["id"], hermes_session_id=session_id)
-    return session_id
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -110,57 +96,31 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/api/status")
 async def status() -> dict[str, Any]:
-    engine = await hermes.health()
-    caps: dict[str, Any] = {}
-    auth_ok = False
-    auth_error = None
-    if engine["ok"]:
-        try:
-            caps = (await hermes.capabilities()).get("features", {})
-            auth_ok = True
-        except hermes.HermesError as exc:
-            auth_error = str(exc)
+    """Estado do app.
+
+    Antes isto perguntava ao API server do Hermes se estava de pé. Agora o motor é
+    daqui de dentro, então o que importa é outra coisa: **se o modelo está
+    configurado**. Quem confirma que a chave presta é o botão "Testar conexão" do
+    modal — de propósito, para não gastar uma chamada a cada carregamento de tela.
+    """
+    cfg = model_store.masked()
     return {
         "app": "frutiger-lm",
         "version": app.version,
-        "engine": engine,
-        "engine_url": settings.hermes_url,
-        "auth_ok": auth_ok,
-        "auth_error": auth_error,
-        "features": caps,
+        "model": {
+            "configured": cfg["configured"],
+            "name": cfg["model"],
+            "base_url": cfg["base_url"],
+        },
         "data_dir": str(settings.data_dir),
         "inline_limit": settings.inline_limit,
         "output_templates": {k: v["label"] for k, v in prompts.OUTPUT_TEMPLATES.items()},
-        # o motor novo (F1) usa isto; o Hermes acima sai quando ele terminar
-        "model_configured": model_store.load().configurado,
     }
 
 
 # --------------------------------------------------------------------------- #
 # Modelo — a API key (D020, D030)
 # --------------------------------------------------------------------------- #
-
-def _dica_de_falha(exc: Exception) -> str:
-    """Traduz as falhas que mais acontecem para algo acionável.
-
-    O caso real: a pessoa escolhe modelo local, esquece o LM Studio desligado, e
-    recebe só "Connection error." — que não diz o que fazer.
-    """
-    cfg = model_store.load()
-    texto = str(exc).lower()
-    if any(p in texto for p in ("onnection", "refused", "unreachable", "getaddrinfo")):
-        if not cfg.precisa_de_chave:
-            return (
-                " — o servidor local não respondeu. O LM Studio costuma ouvir em "
-                ":1234 e o llama.cpp em :8080; confira se está rodando."
-            )
-        return f" — não consegui alcançar {cfg.base_url}. Confira o endereço e a sua conexão."
-    if any(p in texto for p in ("401", "ncorrect api key", "nauthorized")):
-        return " — a chave foi recusada. Confira se ela está completa e ativa no provedor."
-    if "404" in texto:
-        return " — o endereço respondeu, mas o modelo não existe nele. Confira o nome do modelo."
-    return ""
-
 
 @app.get("/api/settings/model")
 async def get_model_settings() -> dict[str, Any]:
@@ -215,7 +175,9 @@ async def test_model_settings() -> dict[str, Any]:
             504, f"O modelo não respondeu em {TESTE_TIMEOUT_S:.0f}s. Se for modelo local, ele está rodando?"
         ) from None
     except Exception as exc:  # noqa: BLE001 - a mensagem do provedor é o que ajuda
-        raise HTTPException(502, f"{type(exc).__name__}: {str(exc)[:300]}{_dica_de_falha(exc)}") from None
+        raise HTTPException(
+            502, f"{type(exc).__name__}: {str(exc)[:300]}{llm.explicar(exc)}"
+        ) from None
 
     return {
         "ok": True,
@@ -238,13 +200,7 @@ async def create_notebook(payload: dict[str, Any] = Body(...)) -> dict[str, Any]
     title = (payload.get("title") or "").strip()
     if not title:
         raise HTTPException(400, "O caderno precisa de um título")
-    notebook = db.create_notebook(title, payload.get("description") or "")
-    try:
-        session_id = await hermes.create_session(notebook["title"])
-        db.update_notebook(notebook["id"], hermes_session_id=session_id)
-    except hermes.HermesError as exc:
-        log.warning("não consegui criar a sessão no motor agora: %s", exc)
-    return db.get_notebook(notebook["id"])
+    return db.create_notebook(title, payload.get("description") or "")
 
 
 @app.get("/api/notebooks/{notebook_id}")
@@ -257,27 +213,18 @@ async def get_notebook(notebook_id: str) -> dict[str, Any]:
 @app.patch("/api/notebooks/{notebook_id}")
 async def patch_notebook(notebook_id: str, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     _notebook_or_404(notebook_id)
-    notebook = db.update_notebook(
+    return db.update_notebook(
         notebook_id,
         title=(payload.get("title") or "").strip() or None,
         description=payload.get("description"),
     )
-    if payload.get("title"):
-        session_id = notebook.get("hermes_session_id")
-        if session_id:
-            with suppress(hermes.HermesError):
-                await hermes.rename_session(session_id, notebook["title"])
-    return notebook
 
 
 @app.delete("/api/notebooks/{notebook_id}")
 async def delete_notebook(notebook_id: str) -> dict[str, Any]:
-    notebook = _notebook_or_404(notebook_id)
-    if notebook.get("hermes_session_id"):
-        try:
-            await hermes.delete_session(notebook["hermes_session_id"])
-        except hermes.HermesError as exc:
-            log.warning("erro ao apagar sessão: %s", exc)
+    _notebook_or_404(notebook_id)
+    # a conversa vai junto: caderno apagado não pode deixar histórico no disco
+    await checkpoints.apagar_conversa(notebook_id)
     db.delete_notebook(notebook_id)  # apaga as linhas E os arquivos (ver db.py)
     return {"deleted": notebook_id}
 
@@ -355,38 +302,37 @@ async def delete_source(source_id: str) -> dict[str, Any]:
 # Conversa
 # --------------------------------------------------------------------------- #
 
+def _agente(notebook: dict[str, Any]) -> Any:
+    """O agente deste caderno, com o checkpointer que o lifespan abriu.
+
+    Traduz "modelo não configurado" em 409, que é o código certo: o pedido está
+    bem formado, o app é que não tem o que precisa para atender.
+    """
+    try:
+        return agent.montar(notebook["id"], checkpointer=checkpoints.saver)
+    except llm.ModeloNaoConfigurado as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 @app.get("/api/notebooks/{notebook_id}/messages")
 async def get_messages(notebook_id: str) -> list[dict[str, Any]]:
+    """A conversa do caderno, direto do checkpointer (D019).
+
+    Antes isto pedia as mensagens ao Hermes e depois as "simplificava" do formato
+    dele. Agora vem do mesmo lugar de onde o agente lembra — ou seja, a tela
+    mostra exatamente o que ele tem em contexto.
+    """
     notebook = _notebook_or_404(notebook_id)
-    session_id = notebook.get("hermes_session_id")
-    if not session_id:
-        return []
-    try:
-        messages = await hermes.list_messages(session_id)
-    except hermes.HermesError as exc:
-        raise HTTPException(502, str(exc)) from exc
-    return [_simplify_message(m) for m in messages]
-
-
-def _simplify_message(message: dict[str, Any]) -> dict[str, Any]:
-    role = message.get("role") or "assistant"
-    content = message.get("content")
-    if not isinstance(content, str):
-        if isinstance(content, list):
-            content = "\n".join(
-                part.get("text", "") for part in content if isinstance(part, dict)
-            )
-        else:
-            content = "" if content is None else str(content)
-    return {
-        "role": role,
-        "content": content,
-        "created_at": message.get("created_at") or message.get("timestamp"),
-    }
+    return await agent.historico(_agente(notebook), notebook_id)
 
 
 @app.post("/api/notebooks/{notebook_id}/chat")
 async def chat(notebook_id: str, payload: dict[str, Any] = Body(...)) -> StreamingResponse:
+    """A conversa do caderno, pelo motor de casa.
+
+    A tradução do LangGraph para os eventos que a interface consome mora no
+    `engine` (`agent.eventos`) — aqui é só encanamento. A interface não mudou.
+    """
     notebook = _notebook_or_404(notebook_id)
     user_input = (payload.get("input") or "").strip()
     if not user_input:
@@ -394,44 +340,28 @@ async def chat(notebook_id: str, payload: dict[str, Any] = Body(...)) -> Streami
 
     async def stream() -> AsyncIterator[str]:
         try:
-            session_id = await _ensure_session(notebook)
-        except hermes.HermesError as exc:
+            agente = agent.montar(notebook["id"], checkpointer=checkpoints.saver)
+        except llm.ModeloNaoConfigurado as exc:
             yield _sse("error", {"message": str(exc)})
             yield _sse("done", {})
             return
 
-        system_prompt = prompts.build_notebook_prompt(notebook)
-        try:
-            async for event, data in hermes.chat_stream(session_id, user_input, system_prompt):
-                if event in {"assistant.delta", "tool.started", "tool.completed",
-                             "tool.progress", "assistant.completed", "run.completed",
-                             "error", "done", "run.started"}:
-                    yield _sse(event, data)
-        except hermes.HermesError as exc:
-            yield _sse("error", {"message": str(exc)})
-            yield _sse("done", {})
-            return
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # pragma: no cover
-            log.exception("falha no stream do chat")
-            yield _sse("error", {"message": f"Falha inesperada: {exc}"})
-            yield _sse("done", {})
+        async for evento, dados in agent.eventos(agente, notebook_id, user_input):
+            yield _sse(evento, dados)
 
     return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 @app.delete("/api/notebooks/{notebook_id}/chat")
 async def reset_chat(notebook_id: str) -> dict[str, Any]:
-    """Começa uma conversa nova (nova sessão no motor), sem tocar nas fontes."""
-    notebook = _notebook_or_404(notebook_id)
-    old = notebook.get("hermes_session_id")
-    if old:
-        with suppress(hermes.HermesError):
-            await hermes.delete_session(old)
-    session_id = await hermes.create_session(notebook["title"])
-    db.update_notebook(notebook_id, hermes_session_id=session_id)
-    return {"session_id": session_id}
+    """Começa uma conversa nova, sem tocar nas fontes nem no resto do caderno.
+
+    Antes isto criava outra sessão no Hermes. Agora é apagar o thread do
+    checkpointer (D019) — a conversa some porque a memória dela sumiu.
+    """
+    _notebook_or_404(notebook_id)
+    await checkpoints.apagar_conversa(notebook_id)
+    return {"reset": notebook_id}
 
 
 # --------------------------------------------------------------------------- #
@@ -468,9 +398,20 @@ async def generate_output(notebook_id: str, payload: dict[str, Any] = Body(...))
     async def stream() -> AsyncIterator[str]:
         yield _sse("output.started", {"template": template_key, "label": template["label"]})
         try:
-            content = await hermes.complete(system_prompt, user_prompt)
-        except hermes.HermesError as exc:
+            resposta = await llm.atual().ainvoke(
+                [("system", system_prompt), ("human", user_prompt)]
+            )
+            content = resposta.content if isinstance(resposta.content, str) else ""
+        except llm.ModeloNaoConfigurado as exc:
             yield _sse("error", {"message": str(exc)})
+            yield _sse("done", {})
+            return
+        except Exception as exc:
+            log.exception("falha ao gerar output")
+            yield _sse(
+                "error",
+                {"message": f"{type(exc).__name__}: {str(exc)[:300]}{llm.explicar(exc)}"},
+            )
             yield _sse("done", {})
             return
 
@@ -524,12 +465,3 @@ async def delete_output(output_id: str) -> dict[str, Any]:
         raise HTTPException(404, "Output não encontrado")
     db.delete_output(output_id)
     return {"deleted": output_id}
-
-
-# --------------------------------------------------------------------------- #
-# Erros
-# --------------------------------------------------------------------------- #
-
-@app.exception_handler(hermes.HermesError)
-async def hermes_error_handler(_request: Request, exc: hermes.HermesError) -> JSONResponse:
-    return JSONResponse({"detail": str(exc)}, status_code=502)

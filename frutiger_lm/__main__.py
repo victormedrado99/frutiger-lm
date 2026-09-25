@@ -6,6 +6,7 @@ import argparse
 
 import uvicorn
 
+from . import model_store
 from .config import settings
 
 
@@ -19,15 +20,13 @@ def main() -> None:
     parser.add_argument("--reload", action="store_true", help="recarrega ao editar o código")
     args = parser.parse_args()
 
-    if not settings.hermes_key:
-        print(
-            "\n  AVISO: HERMES_KEY não está definida.\n"
-            "  Copie .env.example para .env e ponha a mesma chave que está em\n"
-            "  API_SERVER_KEY no ~/.hermes/.env\n"
-        )
-
     print(f"\n  Frutiger LM  ->  http://{args.host}:{args.port}")
-    print(f"  Motor        ->  {settings.hermes_url}")
+    cfg = model_store.load()
+    if cfg.configurado:
+        onde = f"{cfg.model} em {cfg.base_url}"
+    else:
+        onde = "NENHUM — configure no botão \"Modelo\" da tela inicial"
+    print(f"  Modelo       ->  {onde}")
     print(f"  Dados        ->  {settings.data_dir}\n")
 
     uvicorn.run(

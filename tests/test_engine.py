@@ -171,16 +171,6 @@ def test_fake_emite_tool_call_antes_da_resposta():
 # ------------------------------------------------------------------- rotas
 
 
-@pytest.fixture
-def cliente():
-    from fastapi.testclient import TestClient
-
-    from frutiger_lm.app import app
-
-    with TestClient(app) as c:
-        yield c
-
-
 def test_rota_de_modelo_nao_vaza_a_chave(cliente):
     """A regra de segurança, verificada pela borda HTTP."""
     cliente.post(
@@ -259,9 +249,7 @@ def test_dica_de_falha_aponta_o_servidor_local_quando_o_endereco_e_local(cliente
         "/api/settings/model",
         json={"base_url": "http://127.0.0.1:1234/v1", "model": "local"},
     )
-    from frutiger_lm.app import _dica_de_falha
-
-    dica = _dica_de_falha(RuntimeError("Connection error."))
+    dica = llm.explicar(RuntimeError("Connection error."))
     assert ":1234" in dica and "LM Studio" in dica
 
 

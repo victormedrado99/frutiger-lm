@@ -1,87 +1,119 @@
 """Modelos falsos para teste: sem rede, sem chave, sem custo.
 
-Usamos os fakes do ``langchain-core`` em vez de escrever um do zero — duplicar o
-que a lib dá seria trabalho a mais para manter.
+Comecei usando os fakes do ``langchain-core``, para não duplicar o que a lib dá.
+Duas descobertas empíricas mostraram que **não servem** para este projeto, e as
+duas foram achadas testando, não usanda:
 
-**Mas o fake da lib não basta**, e isso foi descoberto testando: o ``bind_tools``
-herdado de ``BaseChatModel`` levanta ``NotImplementedError``, e o ``create_agent``
-liga as ferramentas no modelo antes de rodar. Ou seja, o fake pronto não conduz o
-laço do agente. O que este módulo acrescenta é exatamente isso: um ``bind_tools``
-que aceita a ligação e devolve a si mesmo, porque as mensagens canônicas já
-trazem as tool calls que queremos simular.
+1. ``bind_tools`` (herdado de ``BaseChatModel``) levanta ``NotImplementedError``,
+   e o ``create_agent`` liga as ferramentas no modelo antes de rodar.
+2. O ``_stream`` do ``GenericFakeChatModel`` não produz chunk para mensagem cujo
+   ``content`` é vazio — que é justamente uma mensagem que só carrega tool call.
+   Resultado: ``ValueError: No generations found in stream``. Conduzia o
+   ``ainvoke`` e não conduzia o ``astream``, e o app inteiro é streaming.
+
+Então o fake é nosso, e pequeno: roteiro de mensagens, com **paridade entre bloco
+e stream** — as mesmas mensagens saem tanto de ``invoke`` quanto de ``astream``.
+É essa paridade que permite testar o caminho que o app realmente usa.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.language_models.fake_chat_models import (
-    FakeListChatModel,
-    GenericFakeChatModel,
-)
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from pydantic import Field
 
 TEXTO_PADRAO = "resposta de teste"
 
 
-class _AceitaFerramentas:
-    """Aceita `bind_tools` como no-op.
+class _RoteiroFalso(BaseChatModel):
+    """Devolve (e transmite) uma sequência roteirizada de mensagens."""
 
-    Necessário porque `create_agent` chama `bind_tools` no modelo, e o default do
-    `BaseChatModel` é `NotImplementedError`. Como o roteiro do fake já está nas
-    mensagens, a ligação não precisa fazer nada além de ser aceita.
-    """
+    roteiro: list[AIMessage] = Field(default_factory=list)
 
-    def bind_tools(
-        self,
-        tools: Any,
-        *,
-        tool_choice: Any = None,
-        **kwargs: Any,
-    ) -> Any:
+    @property
+    def _llm_type(self) -> str:
+        return "roteiro-falso"
+
+    def _proxima(self) -> AIMessage:
+        if not self.roteiro:
+            raise RuntimeError(
+                "O roteiro do modelo falso acabou: o teste pediu mais respostas do "
+                "que roteirizou. Costuma significar que o agente deu uma volta a "
+                "mais do que o esperado."
+            )
+        return self.roteiro.pop(0)
+
+    def bind_tools(self, tools: Any, *, tool_choice: Any = None, **kwargs: Any) -> Any:
+        """Aceita a ligação sem fazer nada: o roteiro já traz as tool calls."""
         return self
 
+    def _generate(self, messages: Any, stop: Any = None, run_manager: Any = None, **kw: Any) -> ChatResult:
+        return ChatResult(generations=[ChatGeneration(message=self._proxima())])
 
-class _Responde(_AceitaFerramentas, FakeListChatModel):
-    """Sempre a mesma resposta, e compatível com o laço do agente."""
+    async def _astream(self, messages: Any, stop: Any = None, run_manager: Any = None, **kw: Any):
+        mensagem = self._proxima()
 
+        # Texto antes da tool call, quando houver: é o que o modelo real faz
+        # ("vou procurar isso na fonte") antes de chamar a ferramenta.
+        if mensagem.content:
+            texto = mensagem.content
+            meio = max(1, len(texto) // 2)
+            for parte in (texto[:meio], texto[meio:]):
+                if parte:
+                    yield ChatGenerationChunk(message=AIMessageChunk(content=parte))
 
-class _ComFerramenta(_AceitaFerramentas, GenericFakeChatModel):
-    """Roteiro de mensagens, e compatível com o laço do agente."""
+        # Tool call: o chunk vai com `tool_call_chunks`, que é como os provedores
+        # reais transmitem — e é o que o LangChain remonta em `tool_calls`.
+        if mensagem.tool_calls:
+            yield ChatGenerationChunk(
+                message=AIMessageChunk(
+                    content="",
+                    tool_call_chunks=[
+                        {
+                            "name": tc["name"],
+                            "args": json.dumps(tc["args"]),
+                            "id": tc.get("id") or f"call_{i}",
+                            "index": i,
+                            "type": "tool_call_chunk",
+                        }
+                        for i, tc in enumerate(mensagem.tool_calls)
+                    ],
+                )
+            )
 
 
 def responde(texto: str = TEXTO_PADRAO) -> BaseChatModel:
-    """Sempre a mesma resposta. Não toca a rede."""
-    return _Responde(responses=[texto])
+    """Uma resposta só, sem tocar ferramenta. Não toca a rede."""
+    return _RoteiroFalso(roteiro=[AIMessage(texto)])
 
 
 def com_ferramenta(
     nome: str,
     argumentos: dict,
     resposta_final: str = TEXTO_PADRAO,
+    antes: str = "",
 ) -> BaseChatModel:
     """Chama uma ferramenta na primeira volta e responde na segunda.
 
     É assim que se testa o laço do agente (modelo → ferramenta → modelo) sem
-    rede: alimentando o fake com a sequência de mensagens que um modelo real
-    produziria.
+    rede: alimentando o fake com a sequência que um modelo real produziria.
+
+    ``antes`` é o texto que o modelo escreve **antes** de chamar a ferramenta —
+    o caso real ("vou procurar isso na fonte"). Existe para poder testar a emenda
+    entre as duas falas, que é onde aparece o defeito de texto colado.
     """
-    return _ComFerramenta(
-        messages=iter(
-            [
-                AIMessage(
-                    "",
-                    tool_calls=[
-                        {
-                            "name": nome,
-                            "args": argumentos,
-                            "id": "call_teste_1",
-                            "type": "tool_call",
-                        }
-                    ],
-                ),
-                AIMessage(resposta_final),
-            ]
-        )
+    return _RoteiroFalso(
+        roteiro=[
+            AIMessage(
+                antes,
+                tool_calls=[
+                    {"name": nome, "args": argumentos, "id": "call_teste_1", "type": "tool_call"}
+                ],
+            ),
+            AIMessage(resposta_final),
+        ]
     )

@@ -20,7 +20,6 @@ CREATE TABLE IF NOT EXISTS notebooks (
     id                TEXT PRIMARY KEY,
     title             TEXT NOT NULL,
     description       TEXT NOT NULL DEFAULT '',
-    hermes_session_id TEXT,
     created_at        REAL NOT NULL,
     updated_at        REAL NOT NULL
 );
@@ -61,9 +60,24 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def _migrar(conn: sqlite3.Connection) -> None:
+    """Ajustes de schema para bancos que já existem.
+
+    Sem framework de migração, de propósito: é um banco, um dono, e as mudanças
+    são poucas. Uma DDL idempotente por mudança resolve — e como o SQLite não tem
+    ``DROP COLUMN IF EXISTS``, a checagem é explícita.
+    """
+    colunas = {linha["name"] for linha in _rows(conn.execute("PRAGMA table_info(notebooks)"))}
+    if "hermes_session_id" in colunas:
+        # a sessão do Hermes morreu com o motor próprio: o histórico agora é o
+        # thread do checkpointer (D019)
+        conn.execute("ALTER TABLE notebooks DROP COLUMN hermes_session_id")
+
+
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _migrar(conn)
 
 
 def _now() -> float:
@@ -126,7 +140,7 @@ def get_notebook(notebook_id: str) -> dict[str, Any] | None:
 
 
 def update_notebook(notebook_id: str, **fields: Any) -> dict[str, Any] | None:
-    allowed = {"title", "description", "hermes_session_id"}
+    allowed = {"title", "description"}
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     with connect() as conn:
         if updates:

@@ -5,12 +5,11 @@ Nada aqui toca a rede nem o motor — por isso roda em milissegundos.
 """
 
 import asyncio
-import json
 from pathlib import Path
 
 import pytest
 
-from frutiger_lm import db, hermes, ingest, prompts
+from frutiger_lm import db, ingest, prompts
 from frutiger_lm.config import settings
 
 
@@ -381,59 +380,10 @@ def test_template_desconhecido_levanta_keyerror():
         prompts.build_output_prompt(nb, "nao-existe")
 
 
-# ---------------------------------------------------------------------- motor
-
-def test_erro_401_aponta_o_conserto():
-    msg = hermes._explain(401, "")
-    assert "API_SERVER_KEY" in msg and "HERMES_KEY" in msg
-
-
-def test_erro_404_fala_de_versao_e_url():
-    assert "Rota não encontrada" in hermes._explain(404, "")
-
-
-def test_erro_generico_extrai_a_mensagem_do_motor():
-    corpo = json.dumps({"error": {"message": "modelo indisponivel"}})
-    assert hermes._explain(500, corpo) == "modelo indisponivel"
-
-
-def test_health_nao_explode_com_o_motor_fora():
-    """Regressão: motor inacessível virava httpx.ConnectError cru -> 500 em /api/status.
-
-    O conftest aponta HERMES_URL para uma porta morta, então isto exercita o
-    caminho real de "gateway caiu" sem derrubar nada.
-    """
-    info = asyncio.run(hermes.health())
-    assert info["ok"] is False
-    assert info["status"] is None
-    assert info["url"] == settings.hermes_url
-    assert "error" in info
-
-
-@pytest.mark.parametrize(
-    "chamada",
-    [
-        lambda: hermes.capabilities(),
-        lambda: hermes.create_session("x"),
-        lambda: hermes.list_messages("api_x"),
-        lambda: hermes.complete("sys", "user"),
-    ],
-)
-def test_falha_de_transporte_vira_hermes_error(chamada):
-    """Quem chama só precisa tratar HermesError; httpx não vaza pra cima."""
-    with pytest.raises(hermes.HermesError, match="gateway do Hermes"):
-        asyncio.run(chamada())
-
-
-def test_headers_levam_o_bearer_e_a_chave_de_sessao():
-    headers = hermes._headers()
-    assert headers["Authorization"].startswith("Bearer ")
-    assert headers["X-Hermes-Session-Key"] == settings.session_key
-
-
 # --------------------------------------------------------------------- config
+
 
 def test_defaults_de_configuracao():
     assert settings.inline_limit == 24000
-    assert settings.hermes_url.startswith("http://")
     assert settings.db_path.parent == settings.data_dir
+    assert settings.notebook_dir("nb_x") == settings.notebooks_dir / "nb_x"
