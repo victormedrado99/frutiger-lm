@@ -848,6 +848,10 @@ input[type="range"]::-moz-range-thumb {
 }
 .grafo-linha + .grafo-linha { margin-top: 8px; }
 
+/* Os controles podem quebrar em duas linhas numa barra estreita — melhor duas
+   linhas do que um controle cortado. */
+.grafo-linha-controles { flex-wrap: wrap; row-gap: 7px; }
+
 .grafo-head h2 {
   margin: 0;
   font-size: 14px;

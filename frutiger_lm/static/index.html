@@ -43,11 +43,14 @@
             <input type="search" id="grafo-busca" placeholder="buscar conceito…" autocomplete="off">
             <select id="grafo-caderno"></select>
           </div>
-          <div class="grafo-linha">
+          <div class="grafo-linha grafo-linha-controles">
             <span class="grafo-stats" id="grafo-stats"></span>
             <div class="spacer"></div>
-            <label class="grafo-toggle" title="Mostra só as ligações que o material afirma. As pontilhadas são apenas conceitos que aparecem no mesmo trecho.">
-              <input type="checkbox" id="grafo-sem-cooc"> só as afirmadas
+            <label class="grafo-toggle" title="Só os conceitos DO material: os que aparecem mais de uma vez, ou que atravessam cadernos. Os citados uma única vez são menção de passagem — num material grande eles são a maioria, e são eles que transformam o desenho num novelo. Desmarque para ver todos.">
+              <input type="checkbox" id="grafo-principais" checked> principais
+            </label>
+            <label class="grafo-toggle" title="Mostra só as ligações que o material afirma, com trecho de origem. As pontilhadas são apenas conceitos que aparecem no mesmo trecho.">
+              <input type="checkbox" id="grafo-sem-cooc"> afirmadas
             </label>
           </div>
         </div>

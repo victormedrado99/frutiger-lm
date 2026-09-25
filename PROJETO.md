@@ -92,6 +92,7 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D051 | A citação `[n]` na resposta é o **registro de uso** da fonte | DECIDIDO |
 | D052 | Na home, grafo e chat moram numa **barra lateral à direita**, em abas | DECIDIDO |
 | D053 | O grafo se forma por **gravidade + repulsão**; a vista é que **encaixa** no quadro | DECIDIDO |
+| D054 | O desenho mostra só os conceitos **do material** (2+ menções, ou ponte); o dado fica | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -870,6 +871,41 @@ transbordava). A escala é aplicada à mão, e não com `ctx.scale`, porque **o 
 rótulo não pode encolher junto** — a escala fica em ~0,8 aqui, e um rótulo de 11px
 viraria 9px se fosse escalado.
 
+**D054 — o desenho mostra só os conceitos do material.**
+
+O caderno de verdade tinha **102 conceitos e 255 arestas** — um novelo onde não se
+seguia uma linha. O dado que decidiu o corte:
+
+    conceitos ....................... 102
+    com 2+ menções ..................  30
+    com 3+ menções ..................  12
+    citados 1 vez, sem ligação alguma  22
+    com ligação afirmada ............  78
+
+Filtrar por "tem ligação afirmada" quase não ajuda (78 de 102). O que separa é a
+**repetição**: num material de 150 mil caracteres, um termo citado **uma única vez** é
+menção de passagem, não conceito daquele material.
+
+    Conceito DO material = aparece 2+ vezes, OU atravessa cadernos.
+
+A segunda parte é a exceção que não pode faltar: um conceito citado uma vez em cada um
+de dois cadernos tem duas menções e é **a ponte entre áreas** — esconder ele seria
+esconder justamente a informação mais interessante do grafo.
+
+Resultado: **30 conceitos** no lugar de 102, com 199 arestas no lugar de 255 — e, o que
+importa, um desenho onde dá para seguir uma linha.
+
+**O corte é do DESENHO, não do banco.** Os 72 conceitos de passagem continuam
+guardados, e são eles que o painel de estudo usa nas lacunas ("o material citou e não
+explicou"): apagar do banco destruiria uma funcionalidade do F4 para resolver um
+problema de desenho. `ocultos` diz quantos ficaram fora, e o interruptor **principais**
+os traz de volta — a decisão continua sendo sua.
+
+Fica registrada a alternativa que **não** foi escolhida: mandar o extrator salvar menos
+conceitos. Ela também diminuiria o novelo, mas é irreversível (o conceito filtrado não
+volta sem pagar a extração de novo) e custaria as lacunas. Filtrar no desenho é
+reversível e não custa nada.
+
 ### O que o F4 não faz
 
 - **geração de mídia**: nem áudio, nem imagem, nem vídeo. Nunca esteve no escopo.
@@ -990,6 +1026,8 @@ Funcionando, com **266 testes** e ruff limpo:
 - **o grafo tem física**: gravidade ao centro e repulsão entre os nós formam um
   círculo, e a vista encaixa o desenho no quadro (D053). Medido: 6% de variação de
   raio entre 24 setores
+- **o grafo mostra só os conceitos do material** — 30 no lugar de 102 (D054), com o
+  interruptor para ver os de passagem e o dado preservado para as lacunas do F4
 - **chat do caderno** e **chat global**, com as mesmas ferramentas e escopos diferentes
 - **grafo de conhecimento ancorado**: 102 conceitos e 156 menções no caderno de
   verdade, cada menção com o trecho literal de origem; painel na home com filtros,

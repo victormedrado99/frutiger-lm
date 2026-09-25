@@ -163,6 +163,10 @@ frutiger_lm/
 - **Clique e arraste se confundiam.** A checagem era `Math.abs(vx) < 1` no `mouseup`,
   e nunca falhava: o arraste zera a velocidade a cada movimento, então todo arraste
   abria o conceito. O que decide é a distância percorrida desde o `mousedown`.
+- **Conceito DO material = aparece 2+ vezes, ou atravessa cadernos (D054).** É o que o
+  desenho mostra. **O banco continua guardando todos**, porque os de passagem são o
+  que as lacunas do F4 usam — cortar na extração seria irreversível e custaria uma
+  funcionalidade para resolver um problema de desenho. Filtre na vista, não no dado.
 
 ## Validar com o modelo real
 

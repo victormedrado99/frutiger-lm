@@ -344,6 +344,7 @@
     busca: document.getElementById("grafo-busca"),
     caderno: document.getElementById("grafo-caderno"),
     semCooc: document.getElementById("grafo-sem-cooc"),
+    principais: document.getElementById("grafo-principais"),
   };
 
   /* Peso mínimo das co-ocorrências, e o número veio do material real.
@@ -384,20 +385,35 @@
 
   function desenharGrafo(dados) {
     var total = (dados.nodes || []).length;
+    var ocultos = dados.ocultos || 0;
 
+    /* "30 de 102 conceitos" — o número escondido junto, e não só o mostrado.
+
+       O resto é diagnóstico da extração (menções, trechos descartados), que não é
+       informação do desenho: vai para o `title`, para não roubar a linha. */
     grafoUI.stats.textContent =
-      total + " conceito(s) · " + (dados.edges || []).length + " ligação(ões) · " +
-      dados.mencoes + " menção(ões)" +
-      (dados.descartadas ? " · " + dados.descartadas + " trecho(s) descartado(s)" : "");
+      (ocultos ? total + " de " + (total + ocultos) : total) +
+      " conceito(s) · " + (dados.edges || []).length + " ligação(ões)";
+    grafoUI.stats.title =
+      dados.mencoes + " menção(ões) registradas" +
+      (dados.descartadas ? " · " + dados.descartadas + " trecho(s) descartado(s) por não existirem na fonte" : "") +
+      (ocultos ? " · " + ocultos + " conceito(s) de passagem oculto(s)" : "");
 
     if (!total) {
       grafoUI.canvas.hidden = true;
       grafoUI.vazio.hidden = false;
-      grafoUI.vazio.innerHTML = dados.cadernos && dados.cadernos.length
-        ? "<div>O grafo está vazio. Abra um caderno e use <strong>Extrair conceitos</strong> — " +
-          "eu leio as fontes e registro o que elas <em>realmente</em> dizem, com o trecho de origem " +
-          "de cada coisa.</div>"
-        : "<div>Nenhum caderno ainda. Crie um, adicione fontes e extraia os conceitos.</div>";
+      if (ocultos) {
+        grafoUI.vazio.innerHTML =
+          "<div>Deste caderno, os " + ocultos + " conceito(s) registrados são todos " +
+          "<strong>menções de passagem</strong> — aparecem uma vez só. Desmarque " +
+          "<strong>principais</strong> para vê-los.</div>";
+      } else {
+        grafoUI.vazio.innerHTML = dados.cadernos && dados.cadernos.length
+          ? "<div>O grafo está vazio. Abra um caderno e use <strong>Extrair conceitos</strong> — " +
+            "eu leio as fontes e registro o que elas <em>realmente</em> dizem, com o trecho de origem " +
+            "de cada coisa.</div>"
+          : "<div>Nenhum caderno ainda. Crie um, adicione fontes e extraia os conceitos.</div>";
+      }
       grafoUI.legenda.innerHTML = "";
       return;
     }
@@ -414,6 +430,7 @@
 
   async function carregarGrafo() {
     var parametros = ["peso_minimo=" + PESO_MINIMO_PADRAO];
+    if (grafoUI.principais.checked) parametros.push("principalmente=1");
     if (grafoUI.caderno.value) parametros.push("notebook_id=" + encodeURIComponent(grafoUI.caderno.value));
     if (grafoUI.semCooc.checked) parametros.push("sem_co_ocorrencia=true");
 
@@ -651,6 +668,7 @@
 
   grafoUI.caderno.addEventListener("change", carregarGrafo);
   grafoUI.semCooc.addEventListener("change", carregarGrafo);
+  grafoUI.principais.addEventListener("change", carregarGrafo);
 
   var buscaPendente = null;
   grafoUI.busca.addEventListener("input", function () {

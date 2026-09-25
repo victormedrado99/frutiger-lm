@@ -464,8 +464,14 @@ async def get_grafo(
     notebook_id: str | None = None,
     peso_minimo: int = 1,
     sem_co_ocorrencia: bool = False,
+    principalmente: bool = False,
 ) -> dict[str, Any]:
-    """O grafo para desenhar, com filtros."""
+    """O grafo para desenhar, com filtros.
+
+    `principalmente=1` mostra só os conceitos DO material — os que aparecem mais de
+    uma vez, ou atravessam cadernos. Os de passagem continuam no banco (são as
+    lacunas do F4) e o quanto ficou de fora volta em `ocultos`.
+    """
     if notebook_id:
         _notebook_or_404(notebook_id)
     return {
@@ -473,6 +479,7 @@ async def get_grafo(
             notebook_id=notebook_id,
             peso_minimo=max(1, peso_minimo),
             incluir_co_ocorrencia=not sem_co_ocorrencia,
+            apenas_principais=principalmente,
         ),
         **knowledge.estatisticas(),
         "orfaos": knowledge.orfaos(),

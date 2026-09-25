@@ -36,6 +36,15 @@ SIMILARIDADE = "similarity"
 
 TIPOS = (CO_OCORRENCIA, EXPLICITA, SIMILARIDADE)
 
+# O que faz de um conceito um conceito DO MATERIAL, e não uma menção de passagem:
+# aparecer mais de uma vez, ou atravessar cadernos (a ponte interessa mesmo citada
+# uma única vez de cada lado). Vale como `HAVING` no recorte por caderno e como
+# `WHERE` no recorte global — as subconsultas não dependem de agregação.
+PRINCIPAL_SQL = (
+    "(SELECT COUNT(*) FROM mentions m2 WHERE m2.concept_id = c.id) >= 2"
+    " OR (SELECT COUNT(DISTINCT m2.notebook_id) FROM mentions m2 WHERE m2.concept_id = c.id) > 1"
+)
+
 
 def _id(prefixo: str) -> str:
     return f"{prefixo}_{uuid.uuid4().hex[:12]}"
@@ -498,22 +507,41 @@ def grafo(
     notebook_id: str | None = None,
     peso_minimo: int = 1,
     incluir_co_ocorrencia: bool = True,
+    apenas_principais: bool = False,
 ) -> dict[str, Any]:
     """Os nós e as arestas do grafo, para desenhar.
 
     Filtrado por caderno, o grafo mostra só os conceitos mencionados ali e as
     arestas **entre eles** — uma aresta para um conceito fora do filtro seria uma
     linha saindo para o nada.
+
+    `apenas_principais` deixa de fora os conceitos **de passagem**: os citados uma
+    única vez num único caderno. Num material de 150 mil caracteres, um termo citado
+    uma vez é um nome que apareceu no caminho, não um conceito daquele material — e
+    são eles que transformam o desenho num novelo ilegível (no caderno de verdade,
+    72 dos 102 conceitos eram assim).
+
+    A exceção é o conceito que **atravessa cadernos**: a ponte interessa mesmo citada
+    uma única vez de cada lado, porque é o que liga duas áreas.
+
+    O dado não é apagado por causa disto: os conceitos de passagem continuam no banco
+    e são o que as **lacunas** do F4 usam ("o material citou e não explicou"). Aqui é
+    só o desenho que fica com os principais — e `ocultos` diz quantos ficaram fora.
     """
+    filtro = ""
+    if apenas_principais:
+        filtro = f" HAVING {PRINCIPAL_SQL}" if notebook_id else f" WHERE {PRINCIPAL_SQL}"
+
     with connect() as conn:
         if notebook_id:
             conceitos = [
                 dict(linha)
                 for linha in conn.execute(
-                    """SELECT c.*, COUNT(m.id) AS mentions
+                    f"""SELECT c.*, COUNT(m.id) AS mentions
                        FROM concepts c JOIN mentions m ON m.concept_id = c.id
                        WHERE m.notebook_id = ?
                        GROUP BY c.id
+                       {filtro}
                        ORDER BY mentions DESC""",
                     (notebook_id,),
                 )
@@ -522,15 +550,30 @@ def grafo(
             conceitos = [
                 dict(linha)
                 for linha in conn.execute(
-                    """SELECT c.*, (SELECT COUNT(*) FROM mentions m WHERE m.concept_id = c.id) AS mentions
+                    f"""SELECT c.*, (SELECT COUNT(*) FROM mentions m WHERE m.concept_id = c.id) AS mentions
                        FROM concepts c
+                       {filtro}
                        ORDER BY mentions DESC"""
                 )
             ]
 
+        ocultos = 0
+        if apenas_principais:
+            # O total tem que ser do MESMO escopo do recorte, senão a conta do quanto
+            # ficou escondido sai errada (e a interface diria "0 ocultos" no escopo
+            # global, onde o corte também vale).
+            if notebook_id:
+                total_do_escopo = conn.execute(
+                    "SELECT COUNT(DISTINCT concept_id) n FROM mentions WHERE notebook_id = ?",
+                    (notebook_id,),
+                ).fetchone()["n"]
+            else:
+                total_do_escopo = conn.execute("SELECT COUNT(*) n FROM concepts").fetchone()["n"]
+            ocultos = total_do_escopo - len(conceitos)
+
         ids = {c["id"] for c in conceitos}
         if not ids:
-            return {"nodes": [], "edges": [], "notebooks": []}
+            return {"nodes": [], "edges": [], "notebooks": [], "ocultos": ocultos}
 
         tipos = [CO_OCORRENCIA, EXPLICITA] if incluir_co_ocorrencia else [EXPLICITA]
         marcadores = ",".join("?" * len(tipos))
@@ -561,7 +604,7 @@ def grafo(
         # de "ponte", e é a informação mais interessante do grafo.
         conceito["ponte"] = len(titulos) > 1
 
-    return {"nodes": conceitos, "edges": arestas, "notebooks": cadernos}
+    return {"nodes": conceitos, "edges": arestas, "notebooks": cadernos, "ocultos": ocultos}
 
 
 def lacunas(notebook_id: str, *, limite: int = 60) -> dict[str, list[dict[str, Any]]]:

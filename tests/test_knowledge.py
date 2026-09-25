@@ -295,7 +295,7 @@ def test_o_peso_minimo_filtra_a_co_ocorrencia_e_preserva_a_afirmada():
 
 
 def test_grafo_vazio_nao_quebra():
-    assert knowledge.grafo() == {"nodes": [], "edges": [], "notebooks": []}
+    assert knowledge.grafo() == {"nodes": [], "edges": [], "notebooks": [], "ocultos": 0}
 
 
 # ---------------------------------------------------------------------- edição
