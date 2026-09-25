@@ -71,6 +71,7 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D030 | A chave da API mora em `<data_dir>/model.json` (0600) e **nunca** volta ao navegador | DECIDIDO |
 | D031 | Config de modelo vem da UI; `.env` (`LLM_AGENT`) é o fallback de quem prefere versionar | DECIDIDO |
 | D032 | Config de modelo incompleta é **recusada** com o que falta nomeado — validar antes de gravar | DECIDIDO |
+| D033 | O checkpointer vive em `checkpoints.db`, arquivo **próprio**, não no banco do app | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -190,6 +191,24 @@ Três correções, e a terceira é a que importa:
 A lição geral, que vale para o resto do projeto: **um formulário que aceita um
 estado inutilizável em silêncio é pior do que um que recusa.** O usuário perde
 tempo procurando o problema num lugar onde ele não está.
+
+### D033 — o checkpointer tem arquivo próprio
+
+```
+data/frutiger_lm.db     ← nossas tabelas (cadernos, fontes, outputs, conceitos)
+data/checkpoints.db     ← o estado das conversas, schema do LangGraph
+```
+
+Dois motivos, e o primeiro é o que importa:
+
+1. **O schema é da biblioteca.** Misturar significaria uma migração do LangGraph
+   mexer nas nossas tabelas — e a D022 já reconheceu que essa lib tem churn.
+   Contenção é o mesmo princípio da D018, aplicado ao disco.
+2. **Lock.** O app usa `sqlite3` e o checkpointer usa `aiosqlite`. Em arquivos
+   separados, uma escrita do agente nunca concorre com uma escrita do app.
+
+O preço é um arquivo a mais para fazer backup. Aceito: são dois arquivos por
+instalação, e a separação é o que impede um problema de virar o outro.
 
 ---
 
@@ -327,7 +346,8 @@ index_cache(notebook_id, summary, concepts_blob, built_at)
 ```
 
 Não criamos tabela de mensagens: o `checkpointer` do LangGraph cuida disso (D019),
-no mesmo arquivo SQLite.
+em **arquivo próprio** (`data/checkpoints.db`, D033). As tabelas dele não
+convivem com as nossas.
 
 Índices obrigatórios: `mentions(concept_id)`, `edges(a_id)`, `edges(b_id)`,
 `concepts(canonical)`.
@@ -346,7 +366,8 @@ Cada fase é utilizável sozinha. Nada de fase que só serve se a próxima exist
 - [x] `engine/llm.py`: fábrica de modelo a partir da UI ou do `.env` (D020)
 - [x] `engine/fake.py`: modelo falso para teste sem rede
 - [x] rotas e UI de configuração de modelo (botão "Modelo" na tela inicial)
-- [ ] `engine/checkpoint.py`: `AsyncSqliteSaver`, 1 caderno = 1 `thread_id` (D019)
+- [x] `engine/checkpoint.py`: `AsyncSqliteSaver` em arquivo próprio, 1 caderno =
+      1 `thread_id`, ligado no lifespan do app (D019, D033)
 - [ ] `engine/tools/leitura.py` + `web.py`
 - [ ] `engine/agent.py`: `create_agent` com `system_prompt` nosso e catálogo curado
       (D018, D023, D025)

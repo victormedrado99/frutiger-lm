@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db, hermes, ingest, model_store, prompts
 from .config import settings
-from .engine import llm
+from .engine import checkpoint, llm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("frutiger")
@@ -27,17 +27,26 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 # Quanto esperar por uma resposta mínima do modelo no botão "Testar".
 TESTE_TIMEOUT_S = 30.0
 
+# Ciclo de vida do checkpointer (D019). O agente ainda não consome isto — mas
+# ligar agora prova o ciclo no app real e deixa, para quando o agent.py chegar,
+# uma única coisa a mudar em vez de duas.
+checkpoints = checkpoint.Checkpoints()
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     db.init_db()
+    await checkpoints.abrir()
     log.info(
         "Frutiger LM em %s | motor: %s | dados: %s",
         settings.port,
         settings.hermes_url,
         settings.data_dir,
     )
-    yield
+    try:
+        yield
+    finally:
+        await checkpoints.fechar()
 
 
 app = FastAPI(title="Frutiger LM", version="0.1.0", docs_url="/api/docs", lifespan=lifespan)

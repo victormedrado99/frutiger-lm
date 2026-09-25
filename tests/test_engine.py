@@ -7,6 +7,7 @@ FRUTIGER_DATA_DIR para um diretório temporário).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import stat
@@ -15,16 +16,23 @@ import pytest
 
 from frutiger_lm import model_store
 from frutiger_lm.config import settings
-from frutiger_lm.engine import fake, llm
+from frutiger_lm.engine import checkpoint, fake, llm
 
 
 @pytest.fixture(autouse=True)
-def sem_config_salva():
-    """Cada teste começa sem model.json, e o apaga ao sair."""
-    caminho = settings.data_dir / "model.json"
-    caminho.unlink(missing_ok=True)
+def estado_limpo():
+    """Cada teste começa sem config de modelo e sem checkpoints."""
+    alvos = [
+        settings.data_dir / "model.json",
+        settings.data_dir / "checkpoints.db",
+        settings.data_dir / "checkpoints.db-wal",
+        settings.data_dir / "checkpoints.db-shm",
+    ]
+    for alvo in alvos:
+        alvo.unlink(missing_ok=True)
     yield
-    caminho.unlink(missing_ok=True)
+    for alvo in alvos:
+        alvo.unlink(missing_ok=True)
 
 
 # ------------------------------------------------------------------ model_store
@@ -314,3 +322,81 @@ def test_config_completa_pela_rota_e_aceita(cliente):
     assert corpo["configured"] is True
     assert corpo["temperature"] == 0.3
     assert "sk-completa" not in resp.text
+
+
+# --------------------------------------------------------------- checkpointer
+
+
+def _grafo_minimo(saver):
+    """Grafo de um nó só, sem LLM: existe para exercitar a persistência (D019)."""
+    from typing import TypedDict
+
+    from langgraph.graph import END, START, StateGraph
+
+    class Estado(TypedDict):
+        n: int
+
+    def somar(estado: Estado) -> Estado:
+        return {"n": estado["n"] + 1}
+
+    g = StateGraph(Estado)
+    g.add_node("somar", somar)
+    g.add_edge(START, "somar")
+    g.add_edge("somar", END)
+    return g.compile(checkpointer=saver)
+
+
+def test_thread_id_e_por_caderno():
+    assert checkpoint.thread_id("nb_1") == "caderno:nb_1"
+    assert checkpoint.thread_id("nb_1") != checkpoint.thread_id("nb_2")
+
+
+def test_o_arquivo_do_checkpointer_e_separado_do_app():
+    """D033: o schema é da biblioteca; não se mistura com as nossas tabelas."""
+    assert checkpoint.caminho().endswith("checkpoints.db")
+    assert checkpoint.caminho() != str(settings.db_path)
+
+
+def test_saver_reclama_se_ninguem_abriu():
+    """Erro explícito em vez de `None` estourando longe da causa."""
+    with pytest.raises(RuntimeError, match="lifespan"):
+        _ = checkpoint.Checkpoints().saver
+
+
+def test_estado_persiste_entre_conexoes():
+    """O teste central da D019: a conversa sobrevive à reconexão.
+
+    Sem LLM nenhum — se isto passa, a persistência funciona e o problema que
+    sobrar (se sobrar) está no agente, não aqui.
+    """
+
+    async def ida_e_volta() -> None:
+        cfg = {"configurable": {"thread_id": checkpoint.thread_id("nb_1")}}
+
+        async with checkpoint.aberto() as saver:
+            grafo = _grafo_minimo(saver)
+            await grafo.ainvoke({"n": 41}, cfg)
+            assert (await grafo.aget_state(cfg)).values["n"] == 42
+
+        # conexão NOVA, mesmo arquivo: é isto que prova durabilidade
+        async with checkpoint.aberto() as saver:
+            grafo = _grafo_minimo(saver)
+            assert (await grafo.aget_state(cfg)).values["n"] == 42
+
+    asyncio.run(ida_e_volta())
+
+
+def test_cadernos_diferentes_nao_se_misturam():
+    """Um caderno = um thread. Se vazar, uma conversa aparece na outra."""
+
+    async def dois_cadernos() -> None:
+        async with checkpoint.aberto() as saver:
+            grafo = _grafo_minimo(saver)
+            a = {"configurable": {"thread_id": checkpoint.thread_id("nb_a")}}
+            b = {"configurable": {"thread_id": checkpoint.thread_id("nb_b")}}
+            await grafo.ainvoke({"n": 10}, a)
+            await grafo.ainvoke({"n": 500}, b)
+            assert (await grafo.aget_state(a)).values["n"] == 11
+            assert (await grafo.aget_state(b)).values["n"] == 501
+
+    asyncio.run(dois_cadernos())
