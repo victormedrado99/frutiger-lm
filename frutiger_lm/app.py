@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import shutil
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -279,8 +278,7 @@ async def delete_notebook(notebook_id: str) -> dict[str, Any]:
             await hermes.delete_session(notebook["hermes_session_id"])
         except hermes.HermesError as exc:
             log.warning("erro ao apagar sessão: %s", exc)
-    db.delete_notebook(notebook_id)
-    shutil.rmtree(settings.notebook_dir(notebook_id), ignore_errors=True)
+    db.delete_notebook(notebook_id)  # apaga as linhas E os arquivos (ver db.py)
     return {"deleted": notebook_id}
 
 

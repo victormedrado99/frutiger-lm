@@ -63,15 +63,25 @@ def ferramentas_de_leitura(notebook_id: str) -> list[BaseTool]:
                 "ajuda para adicionar a primeira."
             )
 
-        ativas = sum(1 for f in fontes if f["active"] and f["status"] == "ready")
-        linhas = [f"Fontes deste caderno ({ativas} ativas de {len(fontes)}):", ""]
-        for i, fonte in enumerate(fontes, start=1):
-            ligada = fonte["active"] and fonte["status"] == "ready"
-            marca = "" if ligada else "  (DESLIGADA)"
+        ativas = [f for f in fontes if f["active"] and f["status"] == "ready"]
+        desligadas = [f for f in fontes if f not in ativas]
+
+        # A numeração conta SÓ as ativas, para casar com a do contexto inline
+        # (db.build_context). Se a desligada entrasse na conta, o modelo citaria
+        # [3] apontando para a fonte errada.
+        linhas = [f"Fontes deste caderno ({len(ativas)} ativas de {len(fontes)}):", ""]
+        for i, fonte in enumerate(ativas, start=1):
             linhas.append(
                 f"[{i}] {fonte['id']}  {fonte['kind']:<6} "
-                f"{_mil(fonte['chars']):>10} car.  \"{fonte['title']}\"{marca}"
+                f"{_mil(fonte['chars']):>10} car.  \"{fonte['title']}\""
             )
+        if desligadas:
+            linhas += ["", "Desligadas (fora do contexto — a pessoa precisa religar):"]
+            for fonte in desligadas:
+                linhas.append(
+                    f"      {fonte['id']}  {fonte['kind']:<6} "
+                    f"{_mil(fonte['chars']):>10} car.  \"{fonte['title']}\""
+                )
         linhas += [
             "",
             "Use `ler_fonte` com o id para ler um trecho, ou `buscar_nas_fontes` "

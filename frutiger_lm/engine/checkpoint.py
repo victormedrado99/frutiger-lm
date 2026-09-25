@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
@@ -35,6 +36,15 @@ def thread_id(notebook_id: str) -> str:
     arquivo, e deixa o id legível ao depurar.
     """
     return f"caderno:{notebook_id}"
+
+
+def config(notebook_id: str) -> dict[str, Any]:
+    """Config do LangGraph para este caderno — o que todo `invoke` precisa.
+
+    Fica aqui, e não no agente, porque é o checkpointer que define a convenção de
+    thread. O agente só obedece.
+    """
+    return {"configurable": {"thread_id": thread_id(notebook_id)}}
 
 
 @asynccontextmanager

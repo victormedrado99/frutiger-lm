@@ -1,7 +1,7 @@
-"""Testes do núcleo do Caderno.
+"""Testes do núcleo do Frutiger LM.
 
 Só a lógica que é nossa: banco, montagem de contexto, ingestão e prompts.
-Nada aqui toca a rede nem o motor Hermes — por isso roda em milissegundos.
+Nada aqui toca a rede nem o motor — por isso roda em milissegundos.
 """
 
 import asyncio
@@ -165,15 +165,23 @@ def test_contexto_inline_traz_o_texto_e_o_indice():
     assert "Canberra" in ctx
 
 
-def test_contexto_de_modo_files_nao_vaza_o_texto():
+def test_contexto_de_modo_files_entrega_o_id_e_nao_o_texto():
+    """Mudou na migração para o motor próprio.
+
+    Antes o contexto entregava o CAMINHO do arquivo, porque quem lia era o Hermes
+    (read_file/grep). As ferramentas do motor aceitam **id de fonte**, então
+    caminho virou ruído: o modelo não tem o que fazer com ele.
+    """
     nb = db.create_notebook("X")
     src = fonte(nb["id"], "x" * 30000)
 
     ctx, usadas = db.build_context(ler(nb["id"]), inline_limit=24000)
 
     assert len(usadas) == 1
-    assert src["path"] in ctx  # o agente recebe o CAMINHO
+    assert src["id"] in ctx  # o agente recebe o ID
+    assert src["path"] not in ctx  # e não o caminho no disco
     assert "x" * 200 not in ctx  # e não o conteúdo
+    assert "buscar_nas_fontes" in ctx  # e sabe por onde ler
 
 
 def test_ler_fonte_ausente_devolve_vazio():
@@ -181,7 +189,50 @@ def test_ler_fonte_ausente_devolve_vazio():
     assert db.read_source_text({"path": "/caminho/que/nao/existe.txt"}) == ""
 
 
-# -------------------------------------------------------------------- ingestão
+# -------------------------------------------- apagar leva os arquivos junto
+
+
+def test_apagar_caderno_apaga_os_arquivos_dele():
+    """A invariante que estava partida entre camadas.
+
+    As linhas saíam no db e os arquivos ficavam para trás, porque quem os removia
+    era a rota. Qualquer outro chamador (script, rotina de limpeza) vazava pasta —
+    o que aconteceu de verdade, num teste com modelo real.
+    """
+    nb = db.create_notebook("Some inteiro")["id"]
+    info = fonte(nb, "material da fonte")
+    arquivo = Path(info["path"])
+    assert arquivo.exists()
+
+    db.delete_notebook(nb)
+
+    assert db.get_notebook(nb) is None
+    assert not arquivo.exists()
+    assert not arquivo.parent.parent.exists(), "a pasta do caderno ficou no disco"
+
+
+def test_apagar_fonte_apaga_o_arquivo_dela():
+    nb = db.create_notebook("Caderno que fica")["id"]
+    info = fonte(nb, "material que vai embora")
+    arquivo = Path(info["path"])
+    assert arquivo.exists()
+
+    db.delete_source(info["id"])
+
+    assert not arquivo.exists()
+    assert db.get_notebook(nb) is not None, "o caderno não deveria sumir junto"
+
+
+def test_o_apagador_recusa_caminho_fora_do_diretorio_de_dados(tmp_path):
+    """A guarda: `path` vem do banco. Um registro corrompido não pode virar
+    `unlink` em qualquer lugar do disco."""
+    fora = tmp_path / "importante.txt"
+    fora.write_text("não era para ser apagado", encoding="utf-8")
+
+    db._apagar_arquivo(str(fora))
+
+    assert fora.exists(), "apagou arquivo fora do diretório de dados"
+
 
 def test_clean_text_colapsa_espacos_e_linhas():
     assert ingest.clean_text("a\r\n\r\n\r\n\r\nb") == "a\n\nb"

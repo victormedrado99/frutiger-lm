@@ -60,8 +60,12 @@ def is_youtube(url: str) -> bool:
 # Extratores (bloqueantes — rodam em thread)
 # --------------------------------------------------------------------------- #
 
-def _fetch_url_text(url: str) -> tuple[str, str]:
-    """Devolve (titulo, texto) de uma página."""
+def fetch_url_text(url: str) -> tuple[str, str]:
+    """Devolve (titulo, texto) de uma página.
+
+    Público porque o agente usa isto na ferramenta `web_extract` — não é detalhe
+    interno da ingestão.
+    """
     with httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
         resp = client.get(url)
         resp.raise_for_status()
@@ -256,7 +260,7 @@ async def add_source(
     elif kind == "url":
         if not origin:
             raise IngestError("Informe o link.")
-        fetched_title, body = await asyncio.to_thread(_fetch_url_text, origin)
+        fetched_title, body = await asyncio.to_thread(fetch_url_text, origin)
         title = title or fetched_title
 
     elif kind == "youtube":

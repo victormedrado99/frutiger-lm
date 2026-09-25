@@ -76,13 +76,16 @@ def test_listar_fontes_mostra_id_tipo_tamanho_e_titulo():
     assert "1 ativas de 1" in saida
 
 
-def test_listar_fontes_marca_a_desligada():
+def test_listar_fontes_marca_a_desligada_sem_numerar():
     nb = caderno()
     sid = fonte(nb, "material", "Anotações soltas")
     db.set_source_active(sid, False)
     saida = chamar("listar_fontes", nb)
-    assert "DESLIGADA" in saida
     assert "0 ativas de 1" in saida
+    assert "Desligadas" in saida
+    assert sid in saida
+    # sem número: o número é só das ativas, para casar com o contexto inline
+    assert f"[1] {sid}" not in saida
 
 
 def test_listar_fontes_em_caderno_vazio_orienta():

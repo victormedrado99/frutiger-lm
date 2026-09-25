@@ -6,9 +6,11 @@ do uvicorn. WAL ligado para leitura concorrente durante escrita.
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from .config import settings
@@ -143,9 +145,31 @@ def touch_notebook(notebook_id: str) -> None:
         conn.execute("UPDATE notebooks SET updated_at = ? WHERE id = ?", (_now(), notebook_id))
 
 
+def _apagar_arquivo(caminho: str) -> None:
+    """Apaga um arquivo nosso — e só se estiver dentro do diretório de dados.
+
+    A guarda não é paranoia: `path` vem do banco, e sem ela um registro
+    corrompido viraria um `unlink` em qualquer lugar do disco.
+    """
+    if not caminho:
+        return
+    alvo = Path(caminho)
+    if not alvo.resolve().is_relative_to(settings.data_dir.resolve()):
+        return
+    alvo.unlink(missing_ok=True)
+
+
 def delete_notebook(notebook_id: str) -> None:
+    """Apaga o caderno **e os arquivos dele**.
+
+    Os arquivos saem aqui, e não na rota, por um motivo aprendido na prática:
+    apagar um caderno é uma operação só, e deixá-la partida entre camadas garante
+    que algum chamador — script, rotina futura, código de limpeza — apague as
+    linhas e deixe a pasta no disco. Foi exatamente o que aconteceu.
+    """
     with connect() as conn:
         conn.execute("DELETE FROM notebooks WHERE id = ?", (notebook_id,))
+    shutil.rmtree(settings.notebook_dir(notebook_id), ignore_errors=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -197,11 +221,13 @@ def set_source_active(source_id: str, active: bool) -> dict[str, Any] | None:
 
 
 def delete_source(source_id: str) -> str | None:
+    """Apaga a fonte **e o arquivo de texto dela**. Devolve o id do caderno."""
     src = get_source(source_id)
     if not src:
         return None
     with connect() as conn:
         conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+    _apagar_arquivo(src["path"])
     touch_notebook(src["notebook_id"])
     return src["notebook_id"]
 
@@ -260,8 +286,11 @@ def build_context(
 
     Retorna (bloco_de_contexto, lista_de_fontes_usadas).
     Se o total couber em `inline_limit`, o texto vai inteiro no prompt.
-    Caso contrário devolve só o índice e o agente consulta os arquivos com as
-    tools de leitura dele (read_file / search_files / terminal).
+    Caso contrário devolve só o índice das fontes — **com o id delas** — e o
+    agente lê pelas ferramentas de leitura do motor (D034).
+
+    O índice entrega o **id**, não o caminho no disco: as ferramentas aceitam id,
+    e caminho de arquivo não serve para nada além de confundir o modelo.
     """
     sources = list_sources(notebook["id"], active_only=True)
     if not sources:
@@ -277,13 +306,16 @@ def build_context(
             lines.append(f"### [{i}] {src['title']}  ({src['kind']})\n{text}\n")
     else:
         lines.append(
-            "## Fontes em disco\n"
-            "O conteúdo é grande demais para caber aqui. Leia os arquivos com as"
-            " ferramentas de leitura (read_file, search_files) ou shell (grep/wc)"
-            " antes de responder. NUNCA responda de memória.\n"
+            "## Fontes deste caderno\n"
+            "O conteúdo é grande demais para caber aqui, então ele NÃO está "
+            "abaixo. Use `buscar_nas_fontes` para achar um termo e `ler_fonte` "
+            "para ler o trecho — essas ferramentas já sabem de qual caderno se "
+            "trata. NUNCA responda de memória sobre o conteúdo das fontes.\n"
         )
         for i, (src, text) in enumerate(texts, 1):
-            lines.append(f"- [{i}] {src['title']}  ({src['kind']}, {len(text)} chars) -> {src['path']}")
+            lines.append(
+                f"- [{i}] {src['title']}  ({src['kind']}, {len(text)} chars)  id: {src['id']}"
+            )
 
     return "\n".join(lines), sources
 

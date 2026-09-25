@@ -75,6 +75,7 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D034 | Ferramenta é **presa ao caderno** na construção; o `notebook_id` não é parâmetro | DECIDIDO |
 | D035 | Ferramenta que lê arquivo **limita a própria saída** e diz onde parou | DECIDIDO |
 | D036 | Provedor de `web_search` do agente (SearxNG próprio? API paga? DuckDuckGo?) | ABERTO |
+| D037 | Apagar caderno/fonte apaga os arquivos: a invariante mora no `db`, não na rota | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -246,6 +247,21 @@ o modelo não tem como prever isso. Então:
 É a mesma disciplina de saída limitada que vai valer para toda ferramenta futura:
 o agente decide o que trazer, nunca recebe um balde.
 
+### D037 — apagar é uma operação só
+
+`db.delete_notebook` apaga as linhas **e a pasta**; `db.delete_source` apaga a
+linha **e o arquivo**. A remoção de arquivo estava na rota (`shutil.rmtree` dentro
+do handler HTTP), e o resultado é o de sempre quando uma operação fica partida
+entre camadas: **algum chamador vaza**. Aconteceu de verdade — um teste com modelo
+real apagou o caderno pelo `db`, e a pasta ficou no disco.
+
+O `unlink` tem uma guarda: só apaga se o caminho estiver dentro do diretório de
+dados. `path` vem do banco, e sem a guarda um registro corrompido viraria remoção
+em qualquer lugar do disco.
+
+A regra geral, que vale além deste caso: **se a operação tem um nome, ela tem um
+dono.** "Apagar caderno" é uma coisa, e não duas metades em dois arquivos.
+
 ---
 
 ## 3. Arquitetura em camadas
@@ -280,20 +296,20 @@ ancoragem                                       LangChain)
 Dentro de `engine/`:
 
 ```
-engine/
-  llm.py          fábrica de modelo a partir do .env (OpenAI-compatível)
-  agent.py        O agente principal: create_agent + catálogo curado + checkpointer
-  checkpoint.py   AsyncSqliteSaver no mesmo SQLite
-  fake.py         modelo falso para teste, sem rede
+engine/                                       (✅ = pronto, ⬜ = a fazer)
+  llm.py           ✅ fábrica de modelo (UI ou .env, OpenAI-compatível)
+  agent.py         ✅ o agente: create_agent + catálogo curado + checkpointer
+  checkpoint.py    ✅ AsyncSqliteSaver em arquivo próprio (D033)
+  fake.py          ✅ modelo falso para teste, sem rede
   tools/
-    leitura.py      list_sources, read_source, search_sources
-    web.py          web_search, web_extract
-    grafo.py        criar/ligar/mesclar conceito, consultar vizinhança
-    cadernos.py     buscar/listar entre cadernos (para o chat global)
-    artefatos.py    gerar_plano, gerar_faq, compilar_pdf → disparam subgrafos
+    leitura.py      ✅ listar_fontes, ler_fonte, buscar_nas_fontes
+    web.py          ✅ web_extract  ·  ⬜ web_search (espera a D036)
+    grafo.py        ⬜ criar/ligar/mesclar conceito, consultar vizinhança
+    cadernos.py     ⬜ buscar/listar entre cadernos (para o chat global)
+    artefatos.py    ⬜ gerar_plano, gerar_faq, compilar_pdf → disparam subgrafos
   graphs/
-    artefato.py     o subgrafo que produz um documento (D028)
-    extracao.py     extração de conceitos via response_format (D021)
+    artefato.py     ⬜ o subgrafo que produz um documento (D028)
+    extracao.py     ⬜ extração de conceitos via response_format (D021)
 ```
 
 Regra de ouro: **`engine/` é a única porta para modelo.** Trocar de provedor é
@@ -408,8 +424,11 @@ Cada fase é utilizável sozinha. Nada de fase que só serve se a próxima exist
       presas ao caderno (D034) e com saída limitada (D035)
 - [ ] `engine/tools/web.py`: `web_extract` (reusa o `ingest`) e `web_search`
       (depende de decisão sobre provedor de busca — D036)
-- [ ] `engine/agent.py`: `create_agent` com `system_prompt` nosso e catálogo curado
+- [x] `engine/agent.py`: `create_agent` com `system_prompt` nosso e catálogo curado
       (D018, D023, D025)
+- [x] prompt e contexto falando a língua do motor: `BASE_RULES` e
+      `db.build_context` mencionavam `read_file`/`search_files`/`grep` e entregavam
+      **caminho de arquivo**; agora citam as ferramentas do motor e entregam **id**
 - [ ] rotas de chat do app passando por `engine/` em vez do Hermes
 - [ ] remover a configuração do API server do Hermes
 - [ ] **Critério de pronto:** o chat do caderno funciona **sem Hermes instalado**
