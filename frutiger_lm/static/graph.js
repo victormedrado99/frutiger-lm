@@ -14,21 +14,11 @@
 (function (global) {
   "use strict";
 
-  // Paleta por caderno. Ciano primeiro (a cor do tema), depois tons que contrastam
-  // entre si sobre o fundo escuro.
-  var PALETA = [
-    "#5fe3f0", "#7ce8a8", "#f0b45f", "#c79bf0", "#f08fa8",
-    "#8fb8f0", "#d8e87c", "#f0995f", "#9ff0d8", "#e07cf0",
-  ];
-
-  function corDoCaderno(titulos) {
-    if (!titulos || !titulos.length) return "#8aa0b0";
-    var soma = 0;
-    for (var i = 0; i < titulos.length; i++) {
-      for (var j = 0; j < titulos[i].length; j++) soma += titulos[i].charCodeAt(j);
-    }
-    return PALETA[soma % PALETA.length];
-  }
+  /* A cor do nó saiu do caderno e virou uma só: azul-claro de vidro (a bolha, no
+     `pintar`). A identidade do caderno não se perdeu — no mapa o próprio nó tem o nome
+     do caderno escrito nele, e dentro de um caderno todos os conceitos são dele (menos
+     as pontes, que ganham a aura). Uma cor por caderno era uma legenda a mais para
+     aprender, e a paleta dava laranja e rosa a um app ciano. */
 
   function desenhar(canvas, dados, opcoes) {
     var opt = opcoes || {};
@@ -51,7 +41,6 @@
         mencoes: no.mentions || 0,
         cadernos: no.notebooks || [],
         ponte: !!no.ponte,
-        cor: corDoCaderno(no.notebooks),
         // Espiral inicial: ponto de partida melhor que aleatório, e determinístico
         // (o mesmo grafo cai sempre no mesmo desenho).
         x: largura / 2 + Math.cos(angulo) * Math.min(largura, altura) * 0.32,
@@ -298,16 +287,34 @@
     function calcularEscala() {
       var cx = largura / 2;
       var cy = altura / 2;
-      var maior = 0;
-      nos.forEach(function (no) {
-        var d = Math.sqrt((no.x - cx) * (no.x - cx) + (no.y - cy) * (no.y - cy)) + no.raio;
-        if (d > maior) maior = d;
-      });
-      if (maior < 1) return 1;
-      var alvo = Math.min(largura, altura) / 2 - 8;
-      // O teto de 1.2 evita que um grafo de três nós vire três bolas gigantes; o piso
-      // de 0.3 evita que um grafo enorme vire poeira.
-      return Math.max(0.3, Math.min(1.2, alvo / maior));
+      var alvoL = largura / 2 - 5;
+      var alvoA = altura / 2 - 5;
+      var escala = 1.2;
+
+      /* Duas passadas, e não uma conta fechada, por um motivo: o raio do nó encolhe com
+         a RAIZ da escala, o halo é proporcional ao raio e o rótulo não encolhe NADA. As
+         três coisas dependem da escala de formas diferentes, então a primeira passada
+         estima e a segunda corrige.
+
+         A folga existe porque o nó não é só o círculo: a bolha tem halo em volta, e o
+         rótulo fica embaixo dela. Sem contar isso, o desenho encostava na borda e os
+         nós das pontas saíam cortados. */
+      for (var volta = 0; volta < 2; volta++) {
+        var maiorL = 0;
+        var maiorA = 0;
+        nos.forEach(function (no) {
+          var r = Math.max(2.6, no.raio * Math.sqrt(escala));
+          var folgaX = r * 0.8;
+          var folgaY = r * 0.8 + 17; // o rótulo embaixo do nó
+          maiorL = Math.max(maiorL, Math.abs(no.x - cx) * escala + r + folgaX);
+          maiorA = Math.max(maiorA, Math.abs(no.y - cy) * escala + r + folgaY);
+        });
+        var ajuste = Math.min(alvoL / maiorL, alvoA / maiorA);
+        // O teto de 1.2 evita que um grafo de três nós vire três bolas gigantes; o piso
+        // de 0.3 evita que um grafo enorme vire poeira.
+        escala = Math.max(0.3, Math.min(1.2, escala * ajuste));
+      }
+      return escala;
     }
 
     function atualizarTela() {
@@ -411,33 +418,93 @@
         ctx.setLineDash([]);
       });
 
+      /* A BOLHA — o nó desenhado como vidro Frutiger Aero.
+
+         Quatro coisas fazem a leitura de 3D, e são as quatro de um balão de vidro:
+
+         1. a luz vem de cima e da esquerda — o gradiente é deslocado para lá, e é isso
+            que decide onde a bolha é clara e onde ela é funda;
+         2. o brilho especular — o reflexo da janela, o ponto branco que diz "vidro" e
+            não "círculo pintado";
+         3. a luz que atravessa e volta por baixo — o arco claro na base, que faz a bolha
+            parecer cheia em vez de chapada;
+         4. o aro — claro onde bate luz, escuro do outro lado.
+
+         O halo existe por um motivo prático: o fundo é escuro, e sem ele o nó parece um
+         adesivo colado no painel em vez de uma bolha sobre ele.
+      */
+      function bolha(x, y, r, alfa) {
+        var g = ctx.createRadialGradient(
+          x - r * 0.34, y - r * 0.4, Math.max(0.5, r * 0.08), x, y, r * 1.04
+        );
+        g.addColorStop(0, "rgba(250, 254, 255, 1)");
+        g.addColorStop(0.3, "rgba(178, 235, 250, 1)");
+        g.addColorStop(0.66, "rgba(86, 186, 226, 1)");
+        g.addColorStop(1, "rgba(36, 106, 150, 1)");
+
+        ctx.globalAlpha = alfa;
+        ctx.save();
+        ctx.shadowColor = "rgba(118, 220, 255, 0.7)";
+        ctx.shadowBlur = r * 1.6;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.restore();
+
+        ctx.globalAlpha = alfa;
+        var aro = ctx.createLinearGradient(x - r * 0.7, y - r * 0.7, x + r * 0.7, y + r * 0.7);
+        aro.addColorStop(0, "rgba(255, 255, 255, 0.95)");
+        aro.addColorStop(0.45, "rgba(196, 242, 255, 0.4)");
+        aro.addColorStop(1, "rgba(16, 54, 84, 0.6)");
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(1, r - 0.7), 0, Math.PI * 2);
+        ctx.strokeStyle = aro;
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+
+        if (r > 4) {
+          ctx.beginPath();
+          ctx.ellipse(x - r * 0.32, y - r * 0.42, r * 0.3, r * 0.19, -0.5, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.ellipse(x + r * 0.06, y + r * 0.48, r * 0.4, r * 0.2, 0, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(214, 248, 255, 0.45)";
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+
       nos.forEach(function (no) {
         var aceso = !foco || no === foco || (vizinhos && vizinhos[no.id]);
-        ctx.globalAlpha = aceso ? 1 : 0.22;
 
-        // Ponte entre cadernos: um anel, porque é a informação que mais interessa.
+        // Ponte entre cadernos: uma aura em volta da bolha. É a informação que mais
+        // interessa no desenho, então ela ganha um sinal que não é cor de preenchimento —
+        // a bolha continua azul, e a aura diz que aquele conceito atravessa cadernos.
         if (no.ponte) {
+          ctx.save();
+          ctx.globalAlpha = aceso ? 0.9 : 0.2;
+          ctx.shadowColor = "rgba(150, 235, 255, 0.9)";
+          ctx.shadowBlur = 12;
           ctx.beginPath();
-          ctx.arc(no._sx, no._sy, no._sr + 5, 0, Math.PI * 2);
-          ctx.strokeStyle = "rgba(240, 180, 95, 0.85)";
-          ctx.lineWidth = 2;
+          ctx.arc(no._sx, no._sy, no._sr + 5.5, 0, Math.PI * 2);
+          ctx.strokeStyle = "rgba(226, 250, 255, 0.9)";
+          ctx.lineWidth = 1.8;
           ctx.stroke();
+          ctx.restore();
         }
 
-        ctx.beginPath();
-        ctx.arc(no._sx, no._sy, no._sr, 0, Math.PI * 2);
-        ctx.fillStyle = no.cor;
-        ctx.globalAlpha = aceso ? 0.9 : 0.2;
-        ctx.fill();
+        bolha(no._sx, no._sy, no._sr, aceso ? 1 : 0.2);
 
         if (no === foco) {
           ctx.beginPath();
-          ctx.arc(no._sx, no._sy, no._sr + 3, 0, Math.PI * 2);
-          ctx.strokeStyle = "#ffffff";
+          ctx.arc(no._sx, no._sy, no._sr + 3.5, 0, Math.PI * 2);
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
           ctx.lineWidth = 1.6;
           ctx.stroke();
         }
-        ctx.globalAlpha = aceso ? 1 : 0.2;
 
         // Rótulo: só para quem ganhou lugar na decisão de colisão, no topo do
         // `pintar` — e nunca num nó apagado pelo foco. A pintura fica para o fim, numa

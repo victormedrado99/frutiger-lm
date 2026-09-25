@@ -357,7 +357,13 @@
   */
   var grafoDesenho = null;
   var conceitoAberto = null;
-  var PESO_MINIMO_PADRAO = 2;
+  /* Quantas vezes dois conceitos precisam aparecer juntos para o desenho ligá-los.
+
+     1 = todas as conexões. Com 2, o desenho escondia 74 das 275 ligações do caderno de
+     verdade — e uma ligação escondida é informação que a pessoa não tem como saber que
+     falta. Entrar num caderno agora mostra TUDO o que o material liga; o corte que
+     sobra é de NÓ (o filtro "principais"), esse sim visível e controlável na tela. */
+  var PESO_MINIMO_PADRAO = 1;
 
   function desenharGrafo(dados) {
     var total = (dados.nodes || []).length;
@@ -390,12 +396,12 @@
     var etiqueta = grafoUI.principais.closest("label");
     if (etiqueta) etiqueta.hidden = mapa;
     grafoUI.canvas.title = mapa
-      ? "Cada nó é um caderno — o tamanho é quantos conceitos ele tem. A linha liga dois " +
-        "cadernos que dividem um conceito, e a grossura é quantos. Clique num caderno para " +
-        "ver os conceitos dele."
+      ? "Cada bolha é um caderno — o tamanho é quantos conceitos ele tem. A linha liga dois " +
+        "cadernos que dividem um conceito, e a grossura é quantos. Clique numa bolha para " +
+        "ver os conceitos dela."
       : "Linha cheia = ligação que o material afirma, com trecho de origem. Pontilhada = dois " +
-        "conceitos que aparecem juntos no mesmo trecho. Tamanho do nó = quantas vezes o conceito " +
-        "aparece. Cor = caderno.";
+        "conceitos que aparecem juntos no mesmo trecho. O tamanho da bolha é quantas vezes o " +
+        "conceito aparece. A aura em volta diz que o conceito também existe em outro caderno.";
 
     if (!total) {
       grafoUI.canvas.hidden = true;

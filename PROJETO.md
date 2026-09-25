@@ -85,7 +85,7 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D044 | Extração é lote, não subgrafo do LangGraph (`graphs/` fica para o F5) | DECIDIDO |
 | D045 | As ferramentas de grafo são **globais**, sem escopo: o grafo é a camada que liga | DECIDIDO |
 | D046 | Saída estruturada por `json_mode`, com o formato **no prompt, gerado do Pydantic** | DECIDIDO |
-| D047 | O peso mínimo padrão do desenho é **2**: co-ocorrência de peso 1 não é relação | DECIDIDO |
+| D047 | ~~O peso mínimo padrão do desenho é **2**~~ **SUPERSEDIDA pela D056** | REVERTIDA |
 | D048 | O painel de estudo são **abas** na coluna que já existe ("Gerar" \| "Estudar") | DECIDIDO |
 | D049 | SRS é um SM-2 **simplificado**; as lacunas são **fatos do grafo**, nunca opinião de modelo | DECIDIDO |
 | D050 | Contradição é comparação sobre o **mesmo conceito**, e exige **os dois trechos** | DECIDIDO |
@@ -94,6 +94,8 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D053 | O grafo se forma por **gravidade + repulsão**; a vista é que **encaixa** no quadro | DECIDIDO |
 | D054 | O desenho mostra só os conceitos **do material** (2+ menções, ou ponte); o dado fica | DECIDIDO |
 | D055 | O repouso é o **mapa**: nó = caderno, aresta = conceito em comum; clicar no nó entra | DECIDIDO |
+| D056 | O desenho mostra **todas** as conexões (peso 1); o corte que sobra é de **nó** | DECIDIDO |
+| D057 | O nó é uma **bolha de vidro azul-clara** (Frutiger Aero); a cor por caderno saiu | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -965,6 +967,44 @@ nós **cinzas** (caiu no fallback de cor), os dois nós **colados no centro** (n
 todos puxados para o mesmo ponto) e **um rótulo sumido** (a colisão de caixa derrubou o
 segundo, porque estavam sobrepostos). Nenhum dos três sintomas se parece com "o nome do
 campo está errado". Ficou um teste que prende o nome do campo.
+
+**D056 — o desenho mostra TODAS as conexões.**
+
+A D047 tinha posto o peso mínimo em 2 (dois conceitos juntos uma vez, num bloco de seis
+mil caracteres, não é relação). O problema é o que isso esconde em silêncio: no caderno de
+verdade, peso 2 mostrava 199 das **275** ligações — 74 invisíveis, e a pessoa não tem como
+saber que faltam 74. O número na tela não mente, mas também não avisa.
+
+Regra nova: **o corte que sobra é de NÓ, e é o único que a pessoa controla.** O filtro
+"principais" (D054) tira nó, e diz quantos tirou (`30 de 102`). A aresta não se esconde
+mais: se dois conceitos do desenho aparecem juntos, a linha está lá. A diferença entre
+afirmada e co-ocorrência continua no TRAÇO (cheia × pontilhada), que informa sem omitir.
+
+**D057 — o nó é uma bolha de vidro azul-clara.**
+
+Pedido direto: *"mudar a cor de laranja para um azul claro, dando a impressão de 3D, como
+se fosse uma bolha para entrar no tema Frutiger Aero"*.
+
+Quatro coisas fazem a leitura de 3D, e são as quatro de um balão de vidro: **a luz vem de
+cima e da esquerda** (o gradiente deslocado para lá), **o brilho especular** (o reflexo, o
+ponto branco que diz "vidro" e não "círculo pintado"), **a luz que atravessa e volta por
+baixo** (o arco claro na base, que faz a bolha parecer cheia) e **o aro** (claro onde bate
+luz, escuro do outro lado). O halo existe por um motivo prático: o fundo é escuro, e sem
+ele o nó parece um adesivo colado no painel em vez de uma bolha sobre ele.
+
+**A cor por caderno saiu.** A paleta indexada por hash do título dava laranja e rosa a um
+app ciano — e era uma legenda a mais para aprender. A identidade do caderno não se perdeu:
+no mapa o nó tem o nome do caderno escrito nele, e dentro de um caderno todos os conceitos
+são dele. A ponte entre cadernos passou de anel laranja para **aura clara** em volta da
+bolha: a cor do preenchimento não é mais usada para informar, então o sinal ganhou o
+próprio lugar em vez de competir com a identidade do nó.
+
+**Um encaixe que só apareceu com as bolhas:** o cálculo da escala reservava 8px de margem,
+mas o halo e o rótulo embaixo do nó não encolhem junto com o desenho. Os nós das pontas
+saíam cortados na borda. Agora a escala é calculada em **duas passadas** — o raio encolhe
+com a raiz da escala, o halo é proporcional ao raio e o rótulo não encolhe nada, então as
+três dependem da escala de formas diferentes e a conta fechada não existe. Verificado
+varrendo as quatro bordas do canvas: zero pixel encostando.
 
 ### O que o F4 não faz
 
