@@ -1,0 +1,16 @@
+# ambiente
+.venv/
+__pycache__/
+*.py[cod]
+.uv/
+
+# configuração local (contém a sua chave do motor)
+.env
+.env.local
+
+# dados: cadernos, fontes e outputs são SEUS, não vão para o git
+data/
+
+# sistema
+.DS_Store
+*.log

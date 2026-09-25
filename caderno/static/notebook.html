@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Caderno</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📓</text></svg>">
+</head>
+<body>
+
+  <header class="topbar">
+    <a class="btn btn-ghost btn-sm" href="/">← Cadernos</a>
+    <input type="text" id="nb-title" style="max-width:420px;background:transparent;border-color:transparent;font-weight:600;padding-left:6px">
+    <div class="spacer"></div>
+    <span class="pill" id="ctx-pill" title="Como as fontes entram no prompt">—</span>
+    <span class="pill" id="engine-pill" title="Status do motor Hermes">motor</span>
+    <button class="btn btn-sm" id="btn-reset" title="Começa uma conversa nova (mantém as fontes)">Nova conversa</button>
+  </header>
+
+  <div class="tabs-mobile">
+    <button data-pane="left" class="active">Fontes</button>
+    <button data-pane="mid">Conversa</button>
+    <button data-pane="right">Outputs</button>
+  </div>
+
+  <div class="panes">
+
+    <!-- ======================= ESQUERDA: FONTES ======================= -->
+    <aside class="pane pane-left visible" data-pane="left">
+      <div class="pane-head">
+        <h2>Fontes</h2>
+        <div class="spacer"></div>
+        <span class="pill" id="src-count">0</span>
+      </div>
+      <div class="pane-body scroll" id="sources"></div>
+      <div class="pane-foot">
+        <button class="btn btn-primary" id="btn-add-source" style="width:100%">+ Adicionar fonte</button>
+      </div>
+    </aside>
+
+    <!-- ======================== MEIO: CONVERSA ======================== -->
+    <section class="pane" data-pane="mid">
+      <div class="chat-body scroll" id="messages"></div>
+      <div class="composer">
+        <div class="composer-inner">
+          <textarea id="input" rows="1" placeholder="Pergunte sobre as suas fontes…"></textarea>
+          <button class="btn btn-primary send" id="btn-send">Enviar</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= DIREITA: OUTPUTS ======================= -->
+    <aside class="pane pane-right" data-pane="right">
+      <div class="pane-head">
+        <h2>Gerar</h2>
+      </div>
+      <div class="pane-body scroll">
+        <div class="tpl-grid" id="templates"></div>
+        <div class="section-label">Salvos</div>
+        <div id="outputs"></div>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- ===================== modal: adicionar fonte ===================== -->
+  <div class="overlay" id="modal-source" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>Adicionar fonte</h2>
+        <button class="btn btn-ghost btn-sm" data-close="modal-source">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="tabs">
+          <button class="tab active" data-kind="url">Link</button>
+          <button class="tab" data-kind="pdf">PDF</button>
+          <button class="tab" data-kind="text">Texto colado</button>
+        </div>
+
+        <div class="src-form" data-form="url">
+          <div class="field">
+            <label for="f-url">URL da página ou do vídeo</label>
+            <input type="url" id="f-url" placeholder="https://… ou https://youtube.com/watch?v=…">
+            <div class="hint">Página de artigo, documentação, ou vídeo do YouTube (pega a transcrição).</div>
+          </div>
+        </div>
+
+        <div class="src-form" data-form="pdf" hidden>
+          <div class="field">
+            <label for="f-file">Arquivo PDF</label>
+            <input type="file" id="f-file" accept="application/pdf,.pdf">
+            <div class="hint">PDF com texto selecionável. Digitalizado (imagem) não funciona sem OCR.</div>
+          </div>
+        </div>
+
+        <div class="src-form" data-form="text" hidden>
+          <div class="field">
+            <label for="f-text">Cole o conteúdo</label>
+            <textarea id="f-text" rows="8" placeholder="Cole aqui anotações, um trecho de livro, um e-mail…"></textarea>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="f-title">Título <span style="color:var(--muted)">(opcional)</span></label>
+          <input type="text" id="f-title" placeholder="Deixe vazio para usar o título da fonte" autocomplete="off">
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close="modal-source">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-source">Adicionar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================== modal: ver output ====================== -->
+  <div class="overlay" id="modal-output" hidden>
+    <div class="modal wide">
+      <div class="modal-head">
+        <h2 id="out-title">Output</h2>
+        <div class="spacer"></div>
+        <button class="btn btn-sm" id="btn-copy-out">Copiar</button>
+        <a class="btn btn-sm" id="btn-dl-out" href="#" download>Baixar .md</a>
+        <button class="btn btn-ghost btn-sm" data-close="modal-output">✕</button>
+      </div>
+      <div class="modal-body md" id="out-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/common.js"></script>
+  <script src="/static/md.js"></script>
+  <script src="/static/notebook.js"></script>
+</body>
+</html>

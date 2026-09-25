@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Caderno</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📓</text></svg>">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">Ca<span>der</span>no</div>
+    <div class="spacer"></div>
+    <span class="pill" id="engine-pill"><span class="spinner"></span> verificando motor…</span>
+    <button class="btn btn-primary" id="btn-new">Novo caderno</button>
+  </header>
+
+  <main class="page">
+    <h1>Seus cadernos</h1>
+    <div class="sub" id="subtitle">Carregando…</div>
+    <div class="grid" id="grid"></div>
+  </main>
+
+  <!-- criar caderno -->
+  <div class="overlay" id="modal-new" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>Novo caderno</h2>
+        <button class="btn btn-ghost btn-sm" data-close="modal-new">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label for="nb-title">Título</label>
+          <input type="text" id="nb-title" placeholder="Ex.: Direito Constitucional — prova de novembro" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="nb-desc">Descrição <span style="color:var(--muted)">(opcional)</span></label>
+          <textarea id="nb-desc" rows="2" placeholder="O que você quer aprender ou revisar aqui?"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close="modal-new">Cancelar</button>
+        <button class="btn btn-primary" id="btn-create">Criar caderno</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/common.js"></script>
+  <script src="/static/index.js"></script>
+</body>
+</html>
