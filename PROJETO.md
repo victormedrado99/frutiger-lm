@@ -93,7 +93,7 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D052 | Na home, grafo e chat moram numa **barra lateral à direita**, em abas | DECIDIDO |
 | D053 | O grafo se forma por **gravidade + repulsão**; a vista é que **encaixa** no quadro | DECIDIDO |
 | D054 | O desenho mostra só os conceitos **do material** (2+ menções, ou ponte); o dado fica | DECIDIDO |
-| D055 | O geral é um **mapa de ilhas**: ilha = caderno, ponte = conceito em dois; clicar no rótulo entra | DECIDIDO |
+| D055 | O repouso é o **mapa**: nó = caderno, aresta = conceito em comum; clicar no nó entra | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -926,42 +926,45 @@ conceitos. Ela também diminuiria o novelo, mas é irreversível (o conceito fil
 volta sem pagar a extração de novo) e custaria as lacunas. Filtrar no desenho é
 reversível e não custa nada.
 
-**D055 — o grafo geral é um MAPA DE ILHAS, e a navegação é entrar e sair.**
+**D055 — o nível de repouso é o MAPA: os nós são CADERNOS.**
 
-Cada caderno é uma ilha. A regra é de uma linha: **cada nó é puxado para o centro de
-cada caderno dele**. Um conceito de um caderno só fica na ilha dele; um que aparece em
-dois é puxado para os dois centros ao mesmo tempo e assenta **entre** as ilhas.
+A tela abre no mapa. Cada nó é um caderno — e não um conceito. A aresta liga dois
+cadernos que **dividem** um conceito: o mesmo `concepts.id` com menção registrada nas
+fontes dos dois. `motivos` traz os nomes que sustentam a ligação, porque a aresta é
+conferível e não uma impressão.
 
-Isso importa por um motivo de projeto: **a ponte não tem caso especial**. Ela não é uma
-seta desenhada por cima, nem um tipo de aresta novo — é o resultado da soma das forças.
-Quem liga duas áreas é um conceito que existe nas duas, e o desenho mostra isso porque
-não há outro lugar para ele ficar.
+    mapa   -> no = caderno      tamanho = quantos conceitos ele tem
+                              aresta = quantos conceitos dois cadernos dividem
+    clique -> no = conceito     as relações ancoradas em trecho daquele caderno
+    Voltar -> volta ao mapa
 
-O anel dos centros cresce com a raiz do número de nós (a mesma raiz do equilíbrio de
-uma ilha): com raio fixo, uma ilha de trinta nós **engolia** uma de quatro — a pequena
-aparecia dentro da grande.
+**A primeira versão disto estava errada, e o erro vale o registro.** Eu tinha entendido
+"um grafo por caderno" como *agrupar os conceitos por caderno*: desenhei os 102 conceitos
+em ilhas separadas, cada ilha com o nome do caderno. O usuário foi direto ao ponto:
 
-**A navegação é entrar e sair, e o `<select>` saiu junto.** Em repouso o grafo é o geral;
-entrar num caderno é clicar no rótulo da ilha dele; sair é o **← Voltar**, que só existe
-quando se está dentro. O `<select>` de caderno virou um segundo controle para o mesmo
-estado — e a cabeça desta barra é estreita.
+> *"ele ainda mostra todos os conhecimentos como grafos, e não os cadernos como grafos"*
 
-Na mesma linha saíram **o checkbox "afirmadas" e a linha de legenda**. A legenda ocupava
-59px de desenho para explicar o que o desenho mostra; agora a explicação vive no `title`
-do quadro (aparece ao pousar o ponteiro) e as ilhas ganharam rótulos com o NOME do
-caderno — que informam mais do que "cor = caderno".
+É a diferença entre **agrupar** e **ser**. Ilha de conceitos continua sendo um grafo de
+conceitos — só arrumado. O que ele queria era o nó SER o caderno: 102 conceitos viram UM
+nó. Dois níveis, e o de cima responde "o que eu tenho e o que se liga a quê".
 
-**Um defeito que isto revelou:** dentro de um caderno o desenho continuava abrindo duas
-ilhas. A causa é boa de guardar — um conceito-ponte **continua** pertencendo a dois
-cadernos no banco (é verdade), então o desenho achava que havia duas ilhas numa vista de
-um caderno só, com dois rótulos, sendo que um deles nem estava ali. Quem sabe o escopo é
-a interface: ela é que diz (`cadernoFoco`), em vez de o desenho tentar adivinhar.
+A única coisa que sobreviveu dos dois desenhos foi **a regra das forças**, que já estava
+certa: cada nó é puxado para o centro de cada caderno dele. No mapa, cada nó pertence a
+um caderno, então cada um vai para o seu lugar no anel e os cadernos ficam distribuídos.
+Dentro de um caderno, o foco manda e volta a ser o círculo de sempre.
 
-E um vazamento que apareceu na conta: apagar um caderno de teste deixou **4 conceitos
-órfãos** no banco (o conceito não pertence ao caderno — ele vive nas menções, e as
-menções saem com o caderno). O nome ficava, invisível e inalcançável, sujando a contagem
-("76 ocultos" onde deviam ser 72). `delete_notebook` agora recolhe o que ficou sem
-nenhuma menção — a D037 levada a sério: apagar é uma operação só.
+**Os rótulos de ilha (chips) foram removidos.** Eles existiam para dar nome às ilhas
+quando os nós eram conceitos. Com o nó sendo o caderno, o nome do nó JÁ é o nome do
+caderno — e o chip era o mesmo texto escrito duas vezes. Saíram ~95 linhas de desenho,
+de detecção de clique e de estado: código que, depois desta mudança, nunca mais rodava.
+
+**Um erro de nome, três sintomas que não pareciam ter a mesma causa.** No mapa eu
+nomeei o campo `cadernos`; o desenho lê `notebooks` (o contrato da API). Sem o campo, o
+desenho não achava caderno nenhum em cada nó, e daí saíram as três coisas ao mesmo tempo:
+nós **cinzas** (caiu no fallback de cor), os dois nós **colados no centro** (nenhuma ilha,
+todos puxados para o mesmo ponto) e **um rótulo sumido** (a colisão de caixa derrubou o
+segundo, porque estavam sobrepostos). Nenhum dos três sintomas se parece com "o nome do
+campo está errado". Ficou um teste que prende o nome do campo.
 
 ### O que o F4 não faz
 
@@ -1085,9 +1088,9 @@ Funcionando, com **266 testes** e ruff limpo:
   raio entre 24 setores
 - **o grafo mostra só os conceitos do material** — 30 no lugar de 102 (D054), com o
   interruptor para ver os de passagem e o dado preservado para as lacunas do F4
-- **o grafo geral é um mapa de ilhas** (D055): uma ilha por caderno, o conceito que
-  existe em dois assenta entre as duas ilhas (a ponte não tem caso especial), e clicar
-  no rótulo da ilha entra no caderno — com **← Voltar** para o geral
+- **o nível de repouso é o mapa** (D055): um nó por caderno, ligando os que dividem
+  um conceito (a ligação é conferível e diz quais conceitos a sustentam); clicar no
+  nó entra no caderno, e o **← Voltar** traz de volta ao mapa
 - **chat do caderno** e **chat global**, com as mesmas ferramentas e escopos diferentes
 - **grafo de conhecimento ancorado**: 102 conceitos e 156 menções no caderno de
   verdade, cada menção com o trecho literal de origem; painel na home com filtros,

@@ -886,6 +886,11 @@ input[type="range"]::-moz-range-thumb {
 }
 .grafo-toggle input { width: auto; }
 
+/* O `.grafo-toggle` é `display: flex`, e `display` vence o atributo `hidden` — o
+   mesmo defeito que o painel do conceito teve antes. Sem esta linha, esconder o
+   filtro no mapa de cadernos não esconderia nada. */
+.grafo-toggle[hidden] { display: none; }
+
 #painel-grafo .grafo-area {
   position: relative;
   flex: 1 1 auto;

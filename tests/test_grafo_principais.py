@@ -146,3 +146,96 @@ def test_a_rota_aceita_o_corte(cliente):
     assert len(todos["nodes"]) == 2
     assert [n["name"] for n in cortado["nodes"]] == ["KWP2000"]
     assert cortado["ocultos"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# O MAPA: os cadernos como nós
+# --------------------------------------------------------------------------- #
+# Esta é a diferença que a interface pedia e que eu tinha entendido errado: no nível de
+# repouso o NÓ É O CADERNO. Antes o desenho mostrava os 102 conceitos do caderno real
+# agrupados por caderno — que continua sendo todos os conhecimentos como grafo.
+
+
+def test_o_mapa_tem_um_no_por_caderno_e_nao_por_conceito():
+    a = caderno("Sistemas Embarcados")
+    b = caderno("Termodinâmica")
+    fa = fonte(a)
+    fb = fonte(b)
+    mencionar("KWP2000", a, "O protocolo KWP2000 roda sobre a linha K", TEXTO, fa["id"])
+    mencionar("ISO 14230", a, "O ISO 14230 descreve o KWP2000", TEXTO, fa["id"])
+    mencionar("Entropia", b, "O protocolo KWP2000 roda sobre a linha K", TEXTO, fb["id"])
+
+    mapa = knowledge.grafo_de_cadernos()
+
+    assert len(mapa["nodes"]) == 2, "um nó por caderno, não um por conceito"
+    assert {n["name"] for n in mapa["nodes"]} == {"Sistemas Embarcados", "Termodinâmica"}
+    assert {n["id"] for n in mapa["nodes"]} == {a, b}, "o id do nó é o do CADERNO"
+    por_id = {n["id"]: n for n in mapa["nodes"]}
+    assert por_id[a]["conceitos"] == 2
+    assert por_id[b]["conceitos"] == 1
+    assert por_id[b]["fontes"] == 1
+    # O campo tem que se chamar `notebooks` — é o nome que o desenho lê para a cor e
+    # para a ilha. Com `cadernos` o desenho não achava caderno nenhum e saía tudo cinza,
+    # colado no centro e sem rótulo: um erro de nome, três sintomas, e nenhum deles
+    # parecido com "o nome do campo está errado".
+    assert por_id[a]["notebooks"] == ["Sistemas Embarcados"]
+    assert por_id[b]["notebooks"] == ["Termodinâmica"]
+
+
+def test_o_mapa_liga_os_cadernos_que_dividem_um_conceito():
+    """A aresta do mapa é conferível: ela existe porque o MESMO conceito está nos dois."""
+    a = caderno("A")
+    b = caderno("B")
+    c = caderno("C")
+    fa = fonte(a)
+    fb = fonte(b)
+    fc = fonte(c)
+    for nb, src in ((a, fa), (b, fb)):
+        mencionar("KWP2000", nb, "O protocolo KWP2000 roda sobre a linha K", TEXTO, src["id"])
+        mencionar("ISO 14230", nb, "O ISO 14230 descreve o KWP2000", TEXTO, src["id"])
+    mencionar("Entropia", c, "O protocolo KWP2000 roda sobre a linha K", TEXTO, fc["id"])
+
+    mapa = knowledge.grafo_de_cadernos()
+
+    assert len(mapa["edges"]) == 1, "só A e B dividem conceito"
+    aresta = mapa["edges"][0]
+    assert {aresta["a_id"], aresta["b_id"]} == {a, b}
+    assert aresta["weight"] == 2, "dois conceitos em comum"
+    assert sorted(aresta["motivos"]) == ["ISO 14230", "KWP2000"], "os nomes que a sustentam"
+    assert aresta["kind"] == "cadernos"
+
+
+def test_o_mapa_nao_inventa_ligacao_entre_cadernos_sem_conceito_em_comum():
+    a = caderno("A")
+    b = caderno("B")
+    mencionar("KWP2000", a, "O protocolo KWP2000 roda sobre a linha K", TEXTO, fonte(a)["id"])
+    mencionar("Entropia", b, "O ISO 14230 descreve o KWP2000", TEXTO, fonte(b)["id"])
+
+    mapa = knowledge.grafo_de_cadernos()
+
+    assert len(mapa["nodes"]) == 2, "os dois cadernos aparecem"
+    assert mapa["edges"] == [], "sem conceito em comum, sem aresta"
+
+
+def test_caderno_sem_conceito_ainda_e_um_no():
+    """Um caderno recém-criado precisa ser visível — e clicável — senão não há por onde entrar."""
+    caderno("Recém-criado")
+
+    mapa = knowledge.grafo_de_cadernos()
+
+    assert len(mapa["nodes"]) == 1
+    assert mapa["nodes"][0]["conceitos"] == 0
+    assert mapa["nodes"][0]["mentions"] >= 1, "piso de tamanho: nó de raio zero não se clica"
+
+
+def test_a_rota_sem_notebook_e_o_mapa(cliente):
+    """Sem `notebook_id`, a rota é o MAPA — é o nível de repouso da tela."""
+    nb = caderno("Sistemas")
+    src = fonte(nb)
+    mencionar("KWP2000", nb, "O protocolo KWP2000 roda sobre a linha K", TEXTO, src["id"])
+
+    mapa = cliente.get("/api/grafo").json()
+
+    assert len(mapa["nodes"]) == 1
+    assert mapa["nodes"][0]["id"] == nb, "o nó do mapa é o caderno"
+    assert mapa["nodes"][0]["name"] == "Sistemas"

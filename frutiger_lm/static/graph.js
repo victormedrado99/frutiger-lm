@@ -69,7 +69,10 @@
         return {
           a: porId[aresta.a_id],
           b: porId[aresta.b_id],
-          afirmada: aresta.kind === "explicit",
+          // Sólida é tudo o que não é mera co-ocorrência: ligação afirmada pelo
+          // material, e também a ligação entre cadernos (que é afirmada pelo banco —
+          // o conceito existe nos dois). Pontilhada é só a suspeita de vizinhança.
+          afirmada: aresta.kind !== "co_occurrence",
           peso: aresta.weight || 1,
         };
       })
@@ -77,19 +80,19 @@
         return aresta.a && aresta.b;
       });
 
-    /* ---- as ilhas ------------------------------------------------------------
+    /* ---- o anel dos cadernos --------------------------------------------------
 
-       No grafo geral, cada caderno é uma ILHA. A regra é de uma linha só: cada nó é
-       puxado para o centro de **cada** caderno dele.
+       No MAPA, cada caderno é um nó e cada nó tem a sua própria "ilha" — o que, na
+       prática, é a posição dele no anel. A regra que já existia continua valendo: cada
+       nó é puxado para o centro de **cada** caderno dele.
 
-       - Um conceito que só aparece num caderno fica na ilha daquele caderno.
-       - Um conceito que aparece em dois é puxado para os DOIS centros ao mesmo tempo
-         e assenta ENTRE as ilhas.
+       - No mapa cada nó pertence a um caderno só, então cada um vai para o seu lugar do
+         anel, e os cadernos ficam distribuídos.
+       - Num grafo de conceitos (dentro de um caderno) o `cadernoFoco` manda: existe um
+         centro só, e o desenho volta a ser o círculo de sempre.
 
-       Ou seja: a ponte não tem caso especial. Ela é o resultado da soma das forças, e
-       é por isso que o desenho mostra o que liga duas áreas sem eu precisar desenhar
-       uma seta. A gravidade global (para o centro do quadro) saiu de cena: quem
-       segura o desenho agora são as ilhas, e o encaixe na tela é da vista.
+       Um conceito que aparece em DOIS cadernos é puxado para os dois centros e assenta
+       entre eles — a ponte não tem caso especial: é a soma das forças.
     */
     var ilhas = {};
     var titulosDasIlhas = [];
@@ -99,8 +102,7 @@
 
        Sem esta trava, um conceito-ponte continuava dizendo que pertence a dois cadernos
        — o que é VERDADE no banco — e o desenho abria duas ilhas dentro de uma vista de
-       um caderno só, com dois rótulos, sendo que um deles nem estava ali. Quem sabe o
-       escopo é a interface; ela é que diz. */
+       um caderno só. Quem sabe o escopo é a interface; ela é que diz. */
     var cadernoFoco = opt.cadernoFoco || null;
 
     function montarIlhas() {
@@ -164,8 +166,6 @@
 
     var selecionado = null;
     var destacado = null;
-    var destacadoChip = null;
-    var chips = [];
     var arrastando = null;
     var inicioDoArraste = null;
     var arrastou = false;
@@ -458,103 +458,6 @@
         ctx.fillText(r.nome, r.tx, r.ty);
       });
 
-      desenharChips();
-    }
-
-    /* ---- os rótulos de ilha ---------------------------------------------------
-
-       Cada ilha ganha o nome do caderno, e o nome é um BOTÃO: é por ele que se entra
-       no grafo daquele caderno. Com um caderno só não existe ilha — e aí o rótulo
-       seria ruído, então ele não aparece.
-
-       Desenhado depois de tudo (inclusive do texto dos nós) porque é o controle da
-       tela: nada pode passar por cima dele.
-    */
-    function desenharChips() {
-      chips = [];
-      if (cadernoFoco || titulosDasIlhas.length < 2) return;
-
-      titulosDasIlhas.forEach(function (titulo) {
-        var caixa = caixaDaIlha(titulo);
-        if (!caixa) return;
-
-        ctx.font = "600 11.5px 'Segoe UI', system-ui, sans-serif";
-        var larg = Math.min(largura - 8, ctx.measureText(titulo).width + 26);
-        var alturaChip = 21;
-        var x = Math.max(4, Math.min(largura - larg - 4, caixa.x - larg / 2));
-        var y = Math.max(4, caixa.topo - alturaChip - 9);
-
-        var cor = corDoCaderno([titulo]);
-        var aceso = !destacadoChip || destacadoChip === titulo;
-
-        ctx.globalAlpha = aceso ? 1 : 0.35;
-        caminhoArredondado(x, y, larg, alturaChip, 10);
-        ctx.fillStyle = "rgba(6, 22, 32, 0.85)";
-        ctx.fill();
-        ctx.strokeStyle = cor;
-        ctx.lineWidth = destacadoChip === titulo ? 2 : 1.3;
-        ctx.stroke();
-
-        ctx.fillStyle = cor;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(titulo, x + larg / 2, y + alturaChip / 2 + 0.5);
-        ctx.globalAlpha = 1;
-
-        chips.push({ titulo: titulo, x: x, y: y, w: larg, h: alturaChip });
-      });
-    }
-
-    function caminhoArredondado(x, y, w, h, r) {
-      ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.lineTo(x + w - r, y);
-      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-      ctx.lineTo(x + w, y + h - r);
-      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-      ctx.lineTo(x + r, y + h);
-      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-      ctx.lineTo(x, y + r);
-      ctx.quadraticCurveTo(x, y, x + r, y);
-      ctx.closePath();
-    }
-
-    function caixaDaIlha(titulo) {
-      /* Só os conceitos EXCLUSIVOS deste caderno.
-
-         Um conceito-ponte pertence às duas ilhas, e incluí-lo na conta esticava a
-         caixa de uma delas até o meio do caminho — era o que punha o rótulo da ilha
-         pequena dentro da ilha grande. Se um caderno tiver só pontes (caso raro), aí
-         sim vale a lista inteira, senão ele ficaria sem rótulo nenhum. */
-      var meus = function (no) {
-        return (no.cadernos || []).indexOf(titulo) >= 0;
-      };
-      var exclusivos = nos.filter(function (no) {
-        return (no.cadernos || []).length === 1 && meus(no);
-      });
-      var usar = exclusivos.length ? exclusivos : nos.filter(meus);
-
-      var minX = Infinity;
-      var minY = Infinity;
-      var maxX = -Infinity;
-      var achou = false;
-      usar.forEach(function (no) {
-        if (no._sx === undefined) return;
-        achou = true;
-        minX = Math.min(minX, no._sx - no._sr);
-        minY = Math.min(minY, no._sy - no._sr);
-        maxX = Math.max(maxX, no._sx + no._sr);
-      });
-      if (!achou) return null;
-      return { x: (minX + maxX) / 2, topo: minY };
-    }
-
-    function chipNoPonto(x, y) {
-      for (var i = 0; i < chips.length; i++) {
-        var c = chips[i];
-        if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) return c;
-      }
-      return null;
     }
 
     function animar() {
@@ -616,34 +519,23 @@
         return;
       }
 
-      // O rótulo de ilha tem prioridade sobre o nó: ele é o controle de navegação, e
-      // é a ele que o ponteiro vai quando passa por cima.
-      var chip = chipNoPonto(p.x, p.y);
-      var no = chip ? null : noPonto(p.x, p.y);
-
-      if (chip !== destacadoChip || no !== destacado) {
-        destacadoChip = chip ? chip.titulo : null;
+      var no = noPonto(p.x, p.y);
+      if (no !== destacado) {
         destacado = no;
-        canvas.style.cursor = chip || no ? "pointer" : "default";
+        canvas.style.cursor = no ? "pointer" : "default";
         pintar();
       }
     };
 
     canvas.onmouseleave = function () {
-      if (destacado || destacadoChip) {
+      if (destacado) {
         destacado = null;
-        destacadoChip = null;
         pintar();
       }
     };
 
     canvas.onmousedown = function (ev) {
       var p = posicao(ev);
-      // Rótulo de ilha abre o caderno — e não arrasta nem abre conceito.
-      if (chipNoPonto(p.x, p.y)) {
-        ev.preventDefault();
-        return;
-      }
       var no = noPonto(p.x, p.y);
       if (no) {
         arrastando = no;
@@ -653,17 +545,7 @@
       }
     };
 
-    global.addEventListener("mouseup", function (ev) {
-      // O clique no rótulo de ilha é o que entra no caderno.
-      if (chips.length) {
-        var r = canvas.getBoundingClientRect();
-        var chip = chipNoPonto(ev.clientX - r.left, ev.clientY - r.top);
-        if (chip && opt.aoEntrarNoCaderno) {
-          opt.aoEntrarNoCaderno(chip.titulo);
-          return;
-        }
-      }
-
+    global.addEventListener("mouseup", function () {
       if (!arrastando) return;
       var tocado = arrastando;
       arrastando = null;

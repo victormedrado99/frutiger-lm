@@ -502,6 +502,83 @@ def buscar(termo: str, limite: int = 20) -> list[dict[str, Any]]:
     return achados
 
 
+def grafo_de_cadernos() -> dict[str, Any]:
+    """O MAPA: um nó por **caderno**, e uma aresta entre os que dividem um conceito.
+
+    Este é o nível de cima, e é o único lugar deste módulo onde o nó não é um conceito:
+    aqui o nó é o caderno. O tamanho do nó é quantos conceitos ele tem, e a grossura da
+    aresta é quantos conceitos os dois dividem.
+
+    A aresta é **conferível, e não uma impressão**: dois cadernos se ligam porque existe
+    um conceito — o mesmo `concepts.id`, com menção registrada nas fontes dos dois. Não
+    há modelo nem inferência nesta ligação; `motivos` traz os nomes que a sustentam.
+
+    A forma da saída é a mesma do `grafo()` de propósito: um nível novo não deve exigir
+    um desenho novo.
+    """
+    with connect() as conn:
+        cadernos = conn.execute(
+            """SELECT n.id, n.title,
+                      (SELECT COUNT(*) FROM sources s WHERE s.notebook_id = n.id) AS fontes,
+                      (SELECT COUNT(DISTINCT m.concept_id) FROM mentions m
+                        WHERE m.notebook_id = n.id) AS conceitos
+               FROM notebooks n
+               ORDER BY n.created_at"""
+        ).fetchall()
+
+        ligacoes = conn.execute(
+            """SELECT m1.notebook_id AS a, m2.notebook_id AS b, c.name AS nome
+               FROM mentions m1
+               JOIN mentions m2
+                 ON m2.concept_id = m1.concept_id AND m1.notebook_id < m2.notebook_id
+               JOIN concepts c ON c.id = m1.concept_id
+               GROUP BY m1.notebook_id, m2.notebook_id, c.id
+               ORDER BY c.name"""
+        ).fetchall()
+
+    nos = [
+        {
+            # O `id` do nó é o do CADERNO: é ele que a interface usa para entrar.
+            "id": c["id"],
+            "name": c["title"],
+            # `mentions` é o que o desenho usa para o tamanho. Piso de 1 para um caderno
+            # recém-criado — sem conceito nenhum ele ainda precisa ser um nó visível e
+            # clicável.
+            "mentions": max(c["conceitos"], 1),
+            "conceitos": c["conceitos"],
+            "fontes": c["fontes"],
+            # `notebooks` (e não `cadernos`): é o nome do campo no contrato da API, e é
+            # ele que o desenho lê para a cor do nó e para a ilha. Com o nome errado o
+            # desenho não achava caderno nenhum — nó cinza, todos puxados para o centro.
+            "notebooks": [c["title"]],
+            "ponte": False,
+        }
+        for c in cadernos
+    ]
+
+    motivos: dict[tuple[str, str], list[str]] = {}
+    for ligacao in ligacoes:
+        motivos.setdefault((ligacao["a"], ligacao["b"]), []).append(ligacao["nome"])
+
+    arestas = [
+        {
+            "a_id": a,
+            "b_id": b,
+            "kind": "cadernos",
+            "weight": len(nomes),
+            "motivos": nomes,
+        }
+        for (a, b), nomes in motivos.items()
+    ]
+
+    return {
+        "nodes": nos,
+        "edges": arestas,
+        "notebooks": [c["title"] for c in cadernos],
+        "ocultos": 0,
+    }
+
+
 def grafo(
     *,
     notebook_id: str | None = None,

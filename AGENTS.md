@@ -186,6 +186,13 @@ frutiger_lm/
   não passa pelo corte dos "principais" mas suja toda contagem (`estatisticas`,
   `ocultos`, `vocabulario`). Apareceu como "76 ocultos" onde deviam ser 72.
   `delete_notebook` recolhe o que ficou sem menção nenhuma.
+- **Vários sintomas visuais ao mesmo tempo? Suspeite do CONTRATO, não do desenho.**
+  No mapa de cadernos eu nomeei o campo `cadernos`; o desenho lê `notebooks`. Um nome
+  errado produziu três defeitos que não parecem ter a mesma causa: nós **cinzas**
+  (fallback de cor), os nós **colados no centro** (sem ilha, todos para o mesmo ponto) e
+  **um rótulo sumido** (a colisão de caixa derrubou o segundo, sobreposto ao primeiro).
+  Quando o desenho se comporta como se não tivesse dado, o problema costuma estar no
+  nome do que ele lê — confira a chave antes de mexer na geometria.
 - **`registrar_mencao` deduplica** menção idêntica (mesmo conceito + fonte + trecho).
   Repetir a mesma frase N vezes dá UMA menção — o que importa ao montar dado de teste à
   mão: para um conceito ter 2 menções, são precisos 2 trechos diferentes.

@@ -466,14 +466,23 @@ async def get_grafo(
     sem_co_ocorrencia: bool = False,
     principalmente: bool = False,
 ) -> dict[str, Any]:
-    """O grafo para desenhar, com filtros.
+    """O grafo para desenhar.
 
-    `principalmente=1` mostra só os conceitos DO material — os que aparecem mais de
-    uma vez, ou atravessam cadernos. Os de passagem continuam no banco (são as
-    lacunas do F4) e o quanto ficou de fora volta em `ocultos`.
+    **Sem `notebook_id` é o MAPA**: um nó por caderno, ligando os que dividem conceito.
+    Ele é o nível de repouso — a tela abre mostrando os seus cadernos, e é clicando num
+    deles que se entra.
+
+    **Com `notebook_id` são os conceitos daquele caderno.** `principalmente=1` mostra só
+    os conceitos DO material — os que aparecem mais de uma vez, ou atravessam cadernos.
+    Os de passagem continuam no banco (são as lacunas do F4) e o quanto ficou de fora
+    volta em `ocultos`.
     """
-    if notebook_id:
-        _notebook_or_404(notebook_id)
+    if not notebook_id:
+        # `peso_minimo` e `principalmente` são filtros de CONCEITO: no mapa de cadernos
+        # não há o que filtrar — o nó é o caderno.
+        return knowledge.grafo_de_cadernos()
+
+    _notebook_or_404(notebook_id)
     return {
         **knowledge.grafo(
             notebook_id=notebook_id,

@@ -225,32 +225,41 @@ def test_registrar_relacao_recusa_conceito_que_nao_existe():
 # ------------------------------------------------------------------ as rotas
 
 
-def test_a_rota_do_grafo_devolve_nos_arestas_e_estatisticas(cliente):
-    com_grafo()
-    dados = cliente.get("/api/grafo").json()
-
-    assert len(dados["nodes"]) == 2
-    assert len(dados["edges"]) == 1
-    assert dados["conceitos"] == 2
-    assert dados["orfaos"] == 0, "o grafo não pode ter conceito sem âncora"
-    assert {n["name"] for n in dados["nodes"]} == {"KWP2000", "OBD-II"}
-    assert dados["notebooks"] == ["Caderno"]
-
-
-def test_a_rota_do_grafo_aceita_filtro_por_caderno(cliente):
+def test_a_rota_do_grafo_do_caderno_devolve_nos_arestas_e_estatisticas(cliente):
+    """Com `notebook_id`, a rota é o grafo de CONCEITOS daquele caderno."""
     dados = com_grafo()
+    do_caderno = cliente.get(f"/api/grafo?notebook_id={dados['nb']}").json()
+
+    assert len(do_caderno["nodes"]) == 2
+    assert len(do_caderno["edges"]) == 1
+    assert do_caderno["conceitos"] == 2
+    assert do_caderno["orfaos"] == 0, "o grafo não pode ter conceito sem âncora"
+    assert {n["name"] for n in do_caderno["nodes"]} == {"KWP2000", "OBD-II"}
+    assert do_caderno["notebooks"] == ["Caderno"]
+
+
+def test_o_mapa_tem_um_no_por_caderno_e_o_caderno_tem_um_no_por_conceito(cliente):
+    """Os dois níveis, lado a lado — é a diferença entre o mapa e o caderno.
+
+    Sem `notebook_id` a rota é o MAPA: um nó por caderno. Com `notebook_id` são os
+    conceitos daquele caderno. Antes o nível de repouso mostrava os conceitos de todos
+    os cadernos misturados, que é o novelo que a interface não queria.
+    """
+    principal = com_grafo()
     outro = caderno("Outro")
     src2 = fonte(outro, "Material sobre turbinas.", "Turbinas")
     t = knowledge.achar_ou_criar("Turbina")
     knowledge.registrar_mencao(
-        t["id"], notebook_id=outro, trecho="Material sobre turbinas.", referencia="Material sobre turbinas.", source_id=src2["id"]
+        t["id"], notebook_id=outro, trecho="Material sobre turbinas.",
+        referencia="Material sobre turbinas.", source_id=src2["id"],
     )
 
-    completo = cliente.get("/api/grafo").json()
-    filtrado = cliente.get(f"/api/grafo?notebook_id={dados['nb']}").json()
+    mapa = cliente.get("/api/grafo").json()
+    do_caderno = cliente.get(f"/api/grafo?notebook_id={principal['nb']}").json()
 
-    assert len(completo["nodes"]) == 3
-    assert {n["name"] for n in filtrado["nodes"]} == {"KWP2000", "OBD-II"}
+    assert len(mapa["nodes"]) == 2, "o mapa tem um nó por caderno"
+    assert {n["name"] for n in mapa["nodes"]} == {"Caderno", "Outro"}
+    assert {n["name"] for n in do_caderno["nodes"]} == {"KWP2000", "OBD-II"}
 
 
 def test_a_rota_do_grafo_404_para_caderno_inexistente(cliente):

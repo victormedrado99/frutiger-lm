@@ -362,18 +362,40 @@
   function desenharGrafo(dados) {
     var total = (dados.nodes || []).length;
     var ocultos = dados.ocultos || 0;
+    // Sem escopo, o grafo é o MAPA: os nós são cadernos, não conceitos. Quase tudo
+    // abaixo muda de texto por causa disso — e é só texto: o desenho é o mesmo.
+    var mapa = !escopoAtual;
 
     /* "30 de 102 conceitos" — o número escondido junto, e não só o mostrado.
 
        O resto é diagnóstico da extração (menções, trechos descartados), que não é
        informação do desenho: vai para o `title`, para não roubar a linha. */
-    grafoUI.stats.textContent =
-      (ocultos ? total + " de " + (total + ocultos) : total) +
-      " conceito(s) · " + (dados.edges || []).length + " ligação(ões)";
-    grafoUI.stats.title =
-      dados.mencoes + " menção(ões) registradas" +
-      (dados.descartadas ? " · " + dados.descartadas + " trecho(s) descartado(s) por não existirem na fonte" : "") +
-      (ocultos ? " · " + ocultos + " conceito(s) de passagem oculto(s)" : "");
+    if (mapa) {
+      grafoUI.stats.textContent =
+        total + (total === 1 ? " caderno · " : " cadernos · ") +
+        (dados.edges || []).length + " ligação(ões)";
+      grafoUI.stats.title =
+        "Cada nó é um caderno. Clique num deles para ver os conceitos dele.";
+    } else {
+      grafoUI.stats.textContent =
+        (ocultos ? total + " de " + (total + ocultos) : total) +
+        " conceito(s) · " + (dados.edges || []).length + " ligação(ões)";
+      grafoUI.stats.title =
+        dados.mencoes + " menção(ões) registradas" +
+        (dados.descartadas ? " · " + dados.descartadas + " trecho(s) descartado(s) por não existirem na fonte" : "") +
+        (ocultos ? " · " + ocultos + " conceito(s) de passagem oculto(s)" : "");
+    }
+
+    // O filtro é de CONCEITO: no mapa de cadernos não há o que filtrar.
+    var etiqueta = grafoUI.principais.closest("label");
+    if (etiqueta) etiqueta.hidden = mapa;
+    grafoUI.canvas.title = mapa
+      ? "Cada nó é um caderno — o tamanho é quantos conceitos ele tem. A linha liga dois " +
+        "cadernos que dividem um conceito, e a grossura é quantos. Clique num caderno para " +
+        "ver os conceitos dele."
+      : "Linha cheia = ligação que o material afirma, com trecho de origem. Pontilhada = dois " +
+        "conceitos que aparecem juntos no mesmo trecho. Tamanho do nó = quantas vezes o conceito " +
+        "aparece. Cor = caderno.";
 
     if (!total) {
       grafoUI.canvas.hidden = true;
@@ -384,7 +406,7 @@
           "<strong>menções de passagem</strong> — aparecem uma vez só. Desmarque " +
           "<strong>principais</strong> para vê-los.</div>";
       } else {
-        grafoUI.vazio.innerHTML = dados.cadernos && dados.cadernos.length
+        grafoUI.vazio.innerHTML = dados.notebooks && dados.notebooks.length
           ? "<div>O grafo está vazio. Abra um caderno e use <strong>Extrair conceitos</strong> — " +
             "eu leio as fontes e registro o que elas <em>realmente</em> dizem, com o trecho de origem " +
             "de cada coisa.</div>"
@@ -398,20 +420,30 @@
 
     if (grafoDesenho) grafoDesenho.parar();
     grafoDesenho = window.GrafoFrutiger.desenhar(grafoUI.canvas, dados, {
-      aoClicar: function (id) { abrirConceito(id); },
-      // O rótulo de uma ilha é por onde se entra no caderno. O desenho me dá o
-      // TÍTULO; a API quer o id, e o mapa título→id vem da lista de cadernos.
-      aoEntrarNoCaderno: function (titulo) { entrarNoCaderno(titulo); },
-      // Com o escopo preso a um caderno não há ilha a desenhar: o grafo é ele. Quem
-      // sabe disso é esta camada, não o desenho.
+      // O significado do clique depende do nível, e quem sabe o nível é esta camada:
+      // no mapa o nó É um caderno (clicar entra nele); dentro, o nó é um conceito.
+      aoClicar: function (id) {
+        if (mapa) {
+          entrarNoCaderno(id, tituloPorId[id]);
+          return;
+        }
+        abrirConceito(id);
+      },
+      // Com o escopo preso a um caderno não há ilha a desenhar: o grafo é ele.
       cadernoFoco: escopoTitulo || null,
     });
   }
 
   async function carregarGrafo() {
-    var parametros = ["peso_minimo=" + PESO_MINIMO_PADRAO];
-    if (grafoUI.principais.checked) parametros.push("principalmente=1");
-    if (escopoAtual) parametros.push("notebook_id=" + encodeURIComponent(escopoAtual));
+    /* Sem escopo, a URL vai limpa: o `/api/grafo` sem `notebook_id` é o MAPA, e
+       `peso_minimo`/`principalmente` são filtros de conceito — não há o que filtrar
+       num grafo cujos nós são cadernos. */
+    var parametros = [];
+    if (escopoAtual) {
+      parametros.push("notebook_id=" + encodeURIComponent(escopoAtual));
+      parametros.push("peso_minimo=" + PESO_MINIMO_PADRAO);
+      if (grafoUI.principais.checked) parametros.push("principalmente=1");
+    }
 
     var dados;
     try {
@@ -428,31 +460,35 @@
 
   /* ------------------------------------------------ entrar e sair de um caderno
 
-     Em repouso o grafo é o GERAL: uma ilha por caderno, com as pontes entre as que se
-     tocam (um conceito que vive em dois cadernos fica entre as duas ilhas — é o
-     desenho da ligação, não uma seta). Entrar num caderno é clicar no rótulo da ilha
-     dele; sair é o `Voltar`, que só existe quando se está dentro.
+     Em repouso o grafo é o MAPA: um nó por caderno, e uma linha entre os que dividem
+     um conceito (o mesmo conceito com menção nas fontes dos dois). O nó é o CADERNO,
+     não o conceito — é por isso que ele é clicável, e clicar entra.
 
-     O `<select>` de caderno saiu: com o clique na ilha e o voltar, ele era um segundo
+     Dentro, o grafo é o de conceitos daquele caderno: os nós viram conceitos, as
+     linhas viram relações ancoradas em trecho, e o `Voltar` aparece.
+
+     O `<select>` de caderno saiu: com o clique no nó e o voltar, ele era um segundo
      controle para o mesmo estado — e a cabeça desta barra é estreita, cada linha ali
      é altura roubada do desenho.
   */
   var escopoAtual = "";
   var escopoTitulo = "";
-  var idPorTitulo = {};
+  var tituloPorId = {};
 
   function guardarCadernos(cadernos) {
-    idPorTitulo = {};
+    tituloPorId = {};
     cadernos.forEach(function (n) {
-      idPorTitulo[n.title] = n.id;
+      tituloPorId[n.id] = n.title;
     });
   }
 
-  function entrarNoCaderno(titulo) {
-    var id = idPorTitulo[titulo];
+  /* O nó do mapa É um caderno, e o `id` do nó é o dele: é isso que o clique traz. O
+     título vai junto porque o desenho precisa dele para saber que está dentro de UM
+     caderno (`cadernoFoco`) — e para isso o id não serve. */
+  function entrarNoCaderno(id, titulo) {
     if (!id || id === escopoAtual) return;
     escopoAtual = id;
-    escopoTitulo = titulo;
+    escopoTitulo = titulo || tituloPorId[id] || "";
     mostrarVoltar();
     carregarGrafo();
   }
