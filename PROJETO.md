@@ -74,7 +74,7 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D033 | O checkpointer vive em `checkpoints.db`, arquivo **próprio**, não no banco do app | DECIDIDO |
 | D034 | Ferramenta é **presa ao caderno** na construção; o `notebook_id` não é parâmetro | DECIDIDO |
 | D035 | Ferramenta que lê arquivo **limita a própria saída** e diz onde parou | DECIDIDO |
-| D036 | Provedor de `web_search` do agente (SearxNG próprio? API paga? DuckDuckGo?) | ABERTO |
+| D036 | Provedor de `web_search` do agente | ADIADO |
 | D037 | Apagar caderno/fonte apaga os arquivos: a invariante mora no `db`, não na rota | DECIDIDO |
 | D038 | A tradução LangGraph → eventos da interface mora em `engine/agent.py`; a UI não sabe o que é LangGraph | DECIDIDO |
 
@@ -247,6 +247,26 @@ o modelo não tem como prever isso. Então:
 
 É a mesma disciplina de saída limitada que vai valer para toda ferramenta futura:
 o agente decide o que trazer, nunca recebe um balde.
+
+### D036 — `web_search` fica adiada, e a razão importa
+
+Não é esquecimento. O `web_extract` já cobre o caso real — "a pessoa me deu um
+link" — e busca na web sem provedor escolhido significa escolher um dos três
+caminhos ruins:
+
+- **SearxNG próprio**: sem chave e sem custo, mas é mais um serviço para rodar e
+  manter na VPS;
+- **API paga** (Tavily, Brave, Serper): funciona bem, mas é uma chave a mais que o
+  usuário final precisa configurar;
+- **DuckDuckGo raspado**: grátis e sem chave, mas quebra quando eles mudam algo, e
+  é contra os termos deles.
+
+Nenhuma das três se paga hoje, porque não há caso de uso pedindo. Quando houver, o
+enquadramento já está pronto: a ferramenta só é **exposta se estiver configurada**
+(D025) — ninguém é obrigado a ter chave de busca para usar o Frutiger LM.
+
+Adiar é diferente de não decidir: a decisão é *não construir agora*, com o critério
+de quando construir escrito.
 
 ### D037 — apagar é uma operação só
 
@@ -570,24 +590,31 @@ O que "me atualize em cada decisão de arquitetura" significa na prática:
 
 ---
 
-## 12. Estado atual (2026-09-25)
+## 12. Estado atual (2026-09-25 — F1 concluída)
 
-Já funcionando, com 48 testes e ruff limpo:
+Funcionando, com **109 testes** e ruff limpo:
 
 - cadernos, fontes (link, PDF, YouTube, texto), chat com streaming e citação,
   7 templates de output, UI em três painéis com tema Frutiger Aero
-- motor atual: **Hermes via API server — é o que a D017 remove**
-- `frutiger-lm.service` (app, 8765) ativo e habilitado; `hermes-gateway.service`
-  (motor, 8642) ativo
+- motor: **agente LangGraph próprio**, dentro do app. O Hermes saiu do código, da
+  configuração, do banco e do unit do systemd
+- o chat responde com o modelo que **você** configura (botão "Modelo"); hoje,
+  `deepseek-v4-flash`
+- `frutiger-lm.service` (app, 8765) ativo e habilitado, sem depender de outro
+  serviço — `NRestarts=0`
 
-Verificado nesta sessão, sobre o stack que vamos adotar:
+Pendências conhecidas, e nenhuma bloqueia o uso:
+
+- `web_search` não existe (D036 aberta: depende de provedor de busca)
+- `AGENTS.md` existe desde agora, para quem for mexer no código
+
+Verificado, sobre o stack adotado:
 
 ```
-langgraph 1.2.12 · langchain 1.x · langchain-openai 1.6.6
-langgraph-checkpoint-sqlite 3.1.1 · 89 MB · 49 pacotes
+langgraph 1.2.12 · langchain 1.4.2 · langchain-openai 1.6.6
+langgraph-checkpoint-sqlite 3.1.1 · venv completo 196 MB
 
-OK  langchain.agents.create_agent(model, tools, system_prompt, checkpointer,
-                                  response_format, middleware, state_schema, ...)
+OK  langchain.agents.create_agent(model, tools, system_prompt, checkpointer, ...)
 OK  langgraph.checkpoint.sqlite.aio.AsyncSqliteSaver
 OK  ChatOpenAI(base_url=..., api_key=..., model=...)  -> LM Studio e llama.cpp
 OK  astream / astream_events / aget_state / aget_state_history
@@ -598,7 +625,9 @@ ATENÇÃO  langgraph.prebuilt.create_react_agent DEPRECIADO (sai na v2)
 LangGraph vive dentro dele, o histórico é o nosso checkpointer, e o Hermes foi
 removido do código, da configuração e do unit do systemd.
 
-O que ficou de fora, por decisão: `web_search` (espera a D036) e o `AGENTS.md`.
+O que ficou de fora, por decisão: `web_search` (D036, adiada com critério) e o
+`AGENTS.md` — este último existe desde esta sessão, e o que ele registra são as
+armadilhas que o F1 pagou para descobrir.
 
 **Próximo: F2** — `engine/tools/cadernos.py` (buscar entre cadernos), o cache de
 índices, a barra inferior que expande na home para o chat global, e o botão

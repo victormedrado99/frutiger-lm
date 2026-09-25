@@ -9,6 +9,9 @@ rastro até a fonte.
 >
 > **Arquitetura e roadmap:** veja [PROJETO.md](PROJETO.md). É o documento-vivo do
 > projeto — toda decisão estrutural está registrada lá, com status e justificativa.
+>
+> **Vai mexer no código?** Leia [AGENTS.md](AGENTS.md): comandos, as regras que não
+> se negociam, o mapa dos arquivos e as armadilhas que já custaram tempo.
 
 Se você já usou o NotebookLM do Google, a ideia parte da mesma base, mas com uma
 diferença de fundo: o NotebookLM é um **consumidor de fontes** (joga material,
