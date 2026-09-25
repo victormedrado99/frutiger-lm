@@ -41,9 +41,11 @@ resumo, rode puro e leia a saída.
    - o `_stream` do `GenericFakeChatModel` não produz chunk para mensagem de
      `content` vazio — que é exatamente uma mensagem que só carrega tool call.
      Dá `ValueError: No generations found in stream`.
-4. **Ferramenta é presa ao caderno na construção** (D034):
-   `ferramentas_de_leitura(notebook_id)`. O `notebook_id` **nunca** é parâmetro de
-   ferramenta — é o que garante que o modelo não leia as fontes de outro caderno.
+4. **Ferramenta é presa ao escopo na construção** (D034, D039):
+   `ferramentas_de_leitura(Escopo.do_caderno(id))` ou `Escopo.todos()`. O
+   `notebook_id` **nunca** é parâmetro de ferramenta — é o que garante que o chat
+   de um caderno não leia as fontes de outro. E o mesmo catálogo serve aos dois
+   chats: **não crie ferramenta de "busca entre cadernos"**, o escopo já resolve.
 5. **Ferramenta que lê arquivo limita a própria saída** (D035) e diz onde parou. Uma
    ferramenta capaz de despejar 400 mil caracteres no contexto quebra o turno.
 6. **Decisão nova, decisão registrada.** Toda decisão estrutural entra no
@@ -67,11 +69,15 @@ frutiger_lm/
     llm.py            fábrica de modelo + tradução de erro do provedor
     fake.py           modelo falso, com paridade bloco/stream
     checkpoint.py     AsyncSqliteSaver; 1 caderno = 1 thread_id
-    agent.py          o agente; prompt, catálogo, eventos e histórico
-    tools/leitura.py  listar_fontes, ler_fonte, buscar_nas_fontes
+    agent.py          o agente; prompt, catálogo, eventos e histórico —
+                      `montar()` para um caderno, `montar_global()` para todos
+    tools/leitura.py  listar_fontes, ler_fonte, buscar_nas_fontes — presas a um
+                      `Escopo` (um caderno ou todos)
     tools/web.py      web_extract
   static/           UI vanilla (sem build). Se mexer no tema, o CSS é o único
-                    lugar: os seletores são os mesmos desde antes
+                    lugar: os seletores são os mesmos desde antes.
+                    `common.js` tem o `conversa()` — o chat do caderno e o dock da
+                    home usam o MESMO, para não divergirem
 ```
 
 ## Como adicionar uma ferramenta

@@ -247,6 +247,88 @@
     el(id).addEventListener("keydown", function (ev) { if (ev.key === "Enter") salvarModelo(); });
   });
 
+  /* ------------------------------------------------------- chat global (F2)
+     A barra de baixo conversa com TODOS os cadernos: o agente procura em cada um
+     e mostra o que se liga com o quê, dizendo de onde veio cada informação.
+     Mesma renderização do chat do caderno (C.conversa) — só muda o endereço.
+  */
+
+  var dock = {
+    root: document.getElementById("dock"),
+    messages: document.getElementById("dock-messages"),
+    input: document.getElementById("dock-input"),
+    send: document.getElementById("dock-send"),
+  };
+
+  var conversaGlobal = C.conversa({
+    messages: dock.messages,
+    input: dock.input,
+    send: dock.send,
+    url: "/api/global/chat",
+  });
+
+  function introGlobal() {
+    return "<p>Pergunte sobre <strong>todos</strong> os seus cadernos de uma vez — " +
+      "eu procuro em cada um e mostro o que se liga com o quê, dizendo de qual " +
+      "caderno veio cada coisa.</p>" +
+      "<p style='color:var(--muted)'>Ideias: <em>\"o que os meus cadernos têm em comum?\"</em>, " +
+      "<em>\"como o que eu estudei num se relaciona com o outro?\"</em>, " +
+      "<em>\"onde eu já vi esse conceito?\"</em></p>";
+  }
+
+  async function loadConversaGlobal() {
+    try {
+      conversaGlobal.historico(await C.api("/api/global/messages"), introGlobal);
+    } catch (err) {
+      conversaGlobal.historico([], function () {
+        return "<em>Não consegui carregar a conversa: " + C.escapeHtml(err.message) + "</em>";
+      });
+    }
+  }
+
+  /* O histórico é carregado uma vez, e guardado como promise.
+     Sem esta guarda havia uma corrida real: focar a barra dispara o carregamento,
+     e enviar em seguida começava a conversa antes de o histórico chegar. Quando
+     ele chegava, reconstruía a área de mensagens e **apagava a resposta que
+     estava sendo escrita** — o usuário via a bolha de boas-vindas e nada mais. */
+  var historicoCarregado = null;
+
+  function abrirDock() {
+    dock.root.classList.add("aberto");
+    if (!historicoCarregado) historicoCarregado = loadConversaGlobal();
+  }
+
+  function enviarGlobal() {
+    var texto = dock.input.value.trim();
+    if (!texto) return;
+    abrirDock();
+    // só manda depois do histórico: quem chega por último não pode limpar a tela
+    historicoCarregado.then(function () {
+      conversaGlobal.enviar(texto);
+    });
+  }
+
+  // Focar a barra já abre a conversa: quem clicou ali veio conversar.
+  dock.input.addEventListener("focus", abrirDock);
+  dock.input.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter" && !ev.shiftKey && !ev.metaKey && !ev.ctrlKey) {
+      ev.preventDefault();
+      enviarGlobal();
+    }
+  });
+  dock.send.addEventListener("click", enviarGlobal);
+
+  document.getElementById("btn-dock-reset").addEventListener("click", async function () {
+    if (conversaGlobal.ocupado()) return;
+    if (!confirm("Começar a conversa global do zero?\n\n" +
+                 "Os cadernos e as conversas de cada caderno não são tocados.")) return;
+    try {
+      await C.api("/api/global/chat", { method: "DELETE" });
+      C.toast("Conversa global reiniciada.", "ok");
+      historicoCarregado = loadConversaGlobal();
+    } catch (err) { C.toast(err.message, "err"); }
+  });
+
   loadStatus();
   load();
 })();

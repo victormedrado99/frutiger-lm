@@ -70,16 +70,17 @@ def test_o_agente_lembra_entre_turnos():
 
     async def duas_voltas() -> None:
         async with checkpoint.aberto() as saver:
+            config = checkpoint.config(nb)
             # turno 1 — um agente
             a1 = agent.montar(nb, modelo=fake.responde("primeira resposta"), checkpointer=saver)
-            await agent.responder(a1, nb, "primeira pergunta")
+            await agent.responder(a1, config, "primeira pergunta")
 
             # turno 2 — agente NOVO, mesmo thread. Se o histórico aparecer, veio
             # do disco, não da memória do processo.
             a2 = agent.montar(nb, modelo=fake.responde("segunda resposta"), checkpointer=saver)
-            await agent.responder(a2, nb, "segunda pergunta")
+            await agent.responder(a2, config, "segunda pergunta")
 
-            estado = await a2.aget_state(checkpoint.config(nb))
+            estado = await a2.aget_state(config)
             tudo = textos(estado)
             assert "primeira pergunta" in tudo
             assert "primeira resposta" in tudo, "o turno 1 não foi lembrado"
@@ -100,10 +101,11 @@ def test_o_resultado_da_ferramenta_fica_na_memoria():
                 "buscar_nas_fontes", {"termo": "BRAVO-7741"}, "o código é BRAVO-7741"
             )
             agente = agent.montar(nb, modelo=modelo, checkpointer=saver)
-            resposta = await agent.responder(agente, nb, "qual é o código?")
+            config = checkpoint.config(nb)
+            resposta = await agent.responder(agente, config, "qual é o código?")
 
             assert resposta == "o código é BRAVO-7741"
-            estado = await agente.aget_state(checkpoint.config(nb))
+            estado = await agente.aget_state(config)
             tipos = [type(m).__name__ for m in estado.values["messages"]]
             assert "ToolMessage" in tipos, "a leitura da fonte não foi registrada"
             assert "BRAVO-7741" in " ".join(
@@ -123,10 +125,10 @@ def test_cadernos_diferentes_nao_compartilham_memoria():
     async def dois() -> None:
         async with checkpoint.aberto() as saver:
             a = agent.montar(nb_a, modelo=fake.responde("resposta A"), checkpointer=saver)
-            await agent.responder(a, nb_a, "pergunta exclusiva do A")
+            await agent.responder(a, checkpoint.config(nb_a), "pergunta exclusiva do A")
 
             b = agent.montar(nb_b, modelo=fake.responde("resposta B"), checkpointer=saver)
-            await agent.responder(b, nb_b, "pergunta do B")
+            await agent.responder(b, checkpoint.config(nb_b), "pergunta do B")
 
             estado_b = await b.aget_state(checkpoint.config(nb_b))
             tudo_b = " ".join(str(m.content) for m in estado_b.values["messages"])

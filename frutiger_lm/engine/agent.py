@@ -24,22 +24,41 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
 from ..db import get_notebook
-from ..prompts import build_notebook_prompt
-from . import checkpoint, llm
-from .tools.leitura import ferramentas_de_leitura
+from ..prompts import build_global_prompt, build_notebook_prompt
+from . import llm
+from .tools.leitura import Escopo, ferramentas_de_leitura
 from .tools.web import ferramentas_de_web
 
 log = logging.getLogger("frutiger.engine")
 
 
 def catalogo(notebook_id: str) -> list[BaseTool]:
-    """O que este caderno expõe ao modelo (D025).
+    """O que o chat **de um caderno** expõe ao modelo (D025).
 
-    Hoje: as três de leitura (presas ao caderno, D034) e `web_extract`. As de
+    As três de leitura presas àquele caderno (D034) e `web_extract`. As de
     escrita e as de documento entram aqui quando existirem — e é este ponto único
     que decide exposição, para não virar 25 ferramentas sempre visíveis.
     """
-    return [*ferramentas_de_leitura(notebook_id), *ferramentas_de_web()]
+    return [*ferramentas_de_leitura(Escopo.do_caderno(notebook_id)), *ferramentas_de_web()]
+
+
+def catalogo_global() -> list[BaseTool]:
+    """O que o chat **global** expõe: as mesmas ferramentas, outro escopo.
+
+    Nenhuma ferramenta nova (D039). `listar_fontes` no escopo global vira o mapa
+    de todos os cadernos, e `ler_fonte`/`buscar_nas_fontes` alcançam qualquer um.
+    Duas listagens parecidas só dariam ao modelo a chance de escolher a errada.
+    """
+    return [*ferramentas_de_leitura(Escopo.todos()), *ferramentas_de_web()]
+
+
+def _montar(modelo, ferramentas, prompt: str, checkpointer) -> Any:
+    return create_agent(
+        modelo or llm.atual(),
+        tools=ferramentas,
+        system_prompt=prompt,
+        checkpointer=checkpointer,
+    )
 
 
 def montar(
@@ -48,39 +67,49 @@ def montar(
     modelo: BaseChatModel | None = None,
     checkpointer: Any = None,
 ) -> Any:
-    """Monta o agente deste caderno.
+    """Monta o agente do caderno.
 
     `modelo` e `checkpointer` existem para o teste injetar: nos testes o modelo é
-    falso (sem rede, sem chave) e o checkpointer é um arquivo temporário. Em
-    produção os dois vêm do app.
+    falso (sem rede, sem chave) e o checkpointer é um arquivo temporário.
     """
     notebook = get_notebook(notebook_id)
     if notebook is None:
         raise ValueError(f"Caderno '{notebook_id}' não existe.")
 
-    return create_agent(
-        modelo or llm.atual(),
-        tools=catalogo(notebook_id),
-        system_prompt=build_notebook_prompt(notebook),
-        checkpointer=checkpointer,
+    return _montar(
+        modelo,
+        catalogo(notebook_id),
+        build_notebook_prompt(notebook),
+        checkpointer,
     )
 
 
-async def responder(agente: Any, notebook_id: str, texto: str) -> str:
+def montar_global(
+    *,
+    modelo: BaseChatModel | None = None,
+    checkpointer: Any = None,
+) -> Any:
+    """Monta o agente do chat global — o que enxerga todos os cadernos."""
+    return _montar(modelo, catalogo_global(), build_global_prompt(), checkpointer)
+
+
+async def responder(agente: Any, config: dict[str, Any], texto: str) -> str:
     """Uma volta completa: manda a mensagem e devolve o texto final.
 
     O histórico não é passado aqui — quem guarda é o checkpointer, por thread
-    (D019). O chamador só entrega o que a pessoa acabou de escrever.
+    (D019). O chamador só entrega o que a pessoa acabou de escrever. O `config` é
+    de quem chama porque é ele que sabe *qual conversa* é esta: o thread de um
+    caderno (`checkpoint.config`) ou o do chat global (`checkpoint.config_global`).
     """
     saida = await agente.ainvoke(
         {"messages": [{"role": "user", "content": texto}]},
-        checkpoint.config(notebook_id),
+        config,
     )
     return saida["messages"][-1].content
 
 
 async def eventos(
-    agente: Any, notebook_id: str, texto: str
+    agente: Any, config: dict[str, Any], texto: str
 ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
     """A conversa em eventos, no formato que a interface **já** consome.
 
@@ -98,7 +127,7 @@ async def eventos(
     try:
         async for evento in agente.astream_events(
             {"messages": [{"role": "user", "content": texto}]},
-            checkpoint.config(notebook_id),
+            config,
             version="v2",
         ):
             nome = evento["event"]
@@ -142,14 +171,14 @@ async def eventos(
 _PAPEIS = {"human": "user", "ai": "assistant"}
 
 
-async def historico(agente: Any, notebook_id: str) -> list[dict[str, Any]]:
+async def historico(agente: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
     """A conversa como a interface mostra: só o que a pessoa vê.
 
     Sai do **checkpointer** (D019), a mesma fonte que o agente usa para lembrar —
     então o que está na tela é exatamente o que ele tem em contexto. Mensagem de
     ferramenta e resposta sem texto ficam de fora: são maquinaria, não conversa.
     """
-    estado = await agente.aget_state(checkpoint.config(notebook_id))
+    estado = await agente.aget_state(config)
     mensagens = (estado.values or {}).get("messages", []) if estado else []
 
     conversa: list[dict[str, Any]] = []

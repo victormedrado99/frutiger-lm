@@ -19,17 +19,40 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from frutiger_lm import db  # noqa: E402
+from frutiger_lm.config import settings  # noqa: E402
 
 db.init_db()
 
+# Estado que não mora nas tabelas e por isso escapava da limpeza.
+ARQUIVOS_DE_ESTADO = (
+    "model.json",  # a config do modelo (e a chave)
+    "checkpoints.db",  # a conversa
+    "checkpoints.db-wal",
+    "checkpoints.db-shm",
+)
+
 
 @pytest.fixture(autouse=True)
-def banco_limpo():
-    """Isola os testes: zera as tabelas antes de cada um."""
-    with db.connect() as conn:
-        for tabela in ("outputs", "sources", "notebooks"):
-            conn.execute(f"DELETE FROM {tabela}")  # noqa: S608 (nome fixo, não vem de fora)
+def estado_limpo():
+    """Isola os testes: zera as tabelas **e** os arquivos de estado.
+
+    Os dois lados importam. Limpar só as tabelas deixa a conversa viva no
+    `checkpoints.db`, e aí um teste enxerga o histórico do anterior — aconteceu de
+    verdade quando esta limpeza morava só no arquivo de testes do motor, e o
+    arquivo novo não a tinha.
+    """
+    alvos = [settings.data_dir / nome for nome in ARQUIVOS_DE_ESTADO]
+
+    def limpar() -> None:
+        with db.connect() as conn:
+            for tabela in ("outputs", "sources", "notebooks"):
+                conn.execute(f"DELETE FROM {tabela}")  # noqa: S608 (nome fixo)
+        for alvo in alvos:
+            alvo.unlink(missing_ok=True)
+
+    limpar()
     yield
+    limpar()
 
 
 @pytest.fixture

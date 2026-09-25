@@ -18,24 +18,7 @@ from frutiger_lm import model_store
 from frutiger_lm.config import settings
 from frutiger_lm.engine import checkpoint, fake, llm
 
-
-@pytest.fixture(autouse=True)
-def estado_limpo():
-    """Cada teste começa sem config de modelo e sem checkpoints."""
-    alvos = [
-        settings.data_dir / "model.json",
-        settings.data_dir / "checkpoints.db",
-        settings.data_dir / "checkpoints.db-wal",
-        settings.data_dir / "checkpoints.db-shm",
-    ]
-    for alvo in alvos:
-        alvo.unlink(missing_ok=True)
-    yield
-    for alvo in alvos:
-        alvo.unlink(missing_ok=True)
-
-
-# ------------------------------------------------------------------ model_store
+# --------------------------------------------------------------- model_store
 
 
 def test_salvar_e_ler_redondo():

@@ -29,6 +29,9 @@ def caminho() -> str:
     return str(settings.data_dir / "checkpoints.db")
 
 
+THREAD_GLOBAL = "global"
+
+
 def thread_id(notebook_id: str) -> str:
     """Um caderno, uma linha do tempo (D019).
 
@@ -45,6 +48,12 @@ def config(notebook_id: str) -> dict[str, Any]:
     thread. O agente só obedece.
     """
     return {"configurable": {"thread_id": thread_id(notebook_id)}}
+
+
+def config_global() -> dict[str, Any]:
+    """Config do chat global. Um thread só, e não um por caderno: o escopo dele
+    é todos os cadernos, então não há por onde separar."""
+    return {"configurable": {"thread_id": THREAD_GLOBAL}}
 
 
 @asynccontextmanager
@@ -85,6 +94,13 @@ class Checkpoints:
             )
         return self._saver
 
+    async def _apagar_thread(self, thread: str) -> None:
+        await self.saver.adelete_thread(thread)
+
     async def apagar_conversa(self, notebook_id: str) -> None:
         """Esquece a conversa deste caderno — o "limpar chat" da interface."""
-        await self.saver.adelete_thread(thread_id(notebook_id))
+        await self._apagar_thread(thread_id(notebook_id))
+
+    async def apagar_conversa_global(self) -> None:
+        """Esquece a conversa do chat global."""
+        await self._apagar_thread(THREAD_GLOBAL)

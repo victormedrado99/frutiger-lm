@@ -77,6 +77,8 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D036 | Provedor de `web_search` do agente | ADIADO |
 | D037 | Apagar caderno/fonte apaga os arquivos: a invariante mora no `db`, não na rota | DECIDIDO |
 | D038 | A tradução LangGraph → eventos da interface mora em `engine/agent.py`; a UI não sabe o que é LangGraph | DECIDIDO |
+| D039 | Chat global e chat do caderno usam **as mesmas ferramentas**; o que muda é o `Escopo`. Não há ferramenta de "busca entre cadernos" | DECIDIDO |
+| D040 | O índice dos cadernos é calculado **ao vivo**, sem cache — e sem resumo gerado por modelo | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -307,6 +309,48 @@ Dois detalhes que a tradução precisa acertar, e os dois têm teste:
    o histórico junta numa bolha só, e há teste afirmando que os dois textos são
    **idênticos**.
 
+### D039 — a diferença entre os dois chats é o escopo, não as ferramentas
+
+O F2 previa um `engine/tools/cadernos.py` com um `buscar_cadernos`. Não foi feito,
+e não deve ser: `listar_fontes` no escopo global **já é** o mapa de todos os
+cadernos, e `buscar_nas_fontes` já procura em todos.
+
+Uma ferramenta a mais com o mesmo trabalho seria pior por dois motivos:
+
+- o modelo passaria a ter duas listagens parecidas para escolher, e às vezes
+  escolheria a errada (D025);
+- a checagem de acesso ficaria duplicada — e é justamente ela que garante o
+  isolamento da D034.
+
+Então a diferença entre os dois chats virou **um tipo**:
+
+```python
+Escopo.do_caderno(notebook_id)   # o chat do caderno
+Escopo.todos()                   # o chat global
+```
+
+`escopo.permite(fonte)` é a única checagem, num lugar só. Testado dos dois lados: o
+chat de um caderno continua sem alcançar as fontes de outro, e o global alcança
+todas — nomeando de qual caderno veio. Sem isso, o F2 teria enfraquecido uma
+garantia que o F1 tinha conquistado.
+
+### D040 — o índice é calculado ao vivo
+
+O F2 previa um `index_cache` com resumo gerado por modelo, invalidado quando o
+caderno muda. Não foi feito, de propósito.
+
+O índice é uma consulta e uma formatação de texto. Um cache traria invalidação,
+incoerência possível e um estado a mais para depurar, e o custo ao vivo é
+desprezível.
+
+O resumo **gerado** por caderno é outra história: custa uma chamada de modelo por
+caderno e precisa de invalidação. Ele só se paga se a lista de títulos não bastar
+para o modelo decidir onde procurar. Enquanto bastar, não entra.
+
+E note o que a prova real mostrou: com só o índice ao vivo, o agente decidiu
+sozinho procurar nos dois cadernos e leu as quatro fontes. O que existia bastou —
+que é a única evidência que interessa para não construir o cache.
+
 ---
 
 ## 3. Arquitetura em camadas
@@ -481,12 +525,28 @@ Cada fase é utilizável sozinha. Nada de fase que só serve se a próxima exist
 - [x] **Critério de pronto:** o chat funciona **sem Hermes instalado** — provado com
       modelo real, pelo serviço, com a interface inalterada
 
-### F2 — Home: grafo global + chat global
-- [ ] `engine/tools/cadernos.py`: `buscar_cadernos`
-- [ ] `index_cache` e geração automática quando o caderno muda
-- [ ] barra inferior que expande na home (chat global, **com ferramentas** — D023)
-- [ ] botão "virar conhecimento" numa conclusão da conversa
-- [ ] busca global por FTS5
+### F2 — Home: chat global  ← CONCLUÍDA
+- [x] escopo nas ferramentas: `Escopo.do_caderno(id)` / `Escopo.todos()` (D039) —
+      nenhuma ferramenta nova
+- [x] `listar_fontes` no escopo global vira o mapa de todos os cadernos
+- [x] `ler_fonte` e `buscar_nas_fontes` alcançam qualquer caderno, **dizendo de
+      qual caderno veio**; o escopo do caderno segue isolado (D034)
+- [x] índice global no prompt com a **mesma numeração** da ferramenta, e estável
+      por ordem de criação (não por `updated_at`)
+- [x] `agent.montar_global()` + thread próprio (`global`) + `/api/global/*`
+- [x] dock na home que expande, em Frutiger Aero, reusando `C.conversa`
+- [x] **Critério de pronto:** pergunta respondida com material de **dois** cadernos,
+      com a relação explícita e a origem de cada parte — provado com modelo real
+- [ ] busca global por FTS5 (para a pessoa procurar, não para o agente — pequena,
+      fica para quando pedir)
+- [ ] `web_search` segue adiada (D036)
+
+**Fora do F2, por decisão:**
+
+- `index_cache` com resumo gerado por caderno: **não fazer agora** (D040).
+- "virar conhecimento" numa conclusão da conversa: vai para o **F3** — precisa de
+  conceito para existir, e conceito é do F3.
+- `engine/tools/cadernos.py`: **não existe**, e não deve existir (D039).
 
 ### F3 — Grafo de conhecimento
 - [ ] `knowledge.py`: extração de conceitos via `response_format` (D021)
@@ -590,12 +650,14 @@ O que "me atualize em cada decisão de arquitetura" significa na prática:
 
 ---
 
-## 12. Estado atual (2026-09-25 — F1 concluída)
+## 12. Estado atual (2026-09-25 — F1 e F2 concluídas)
 
-Funcionando, com **109 testes** e ruff limpo:
+Funcionando, com **129 testes** e ruff limpo:
 
 - cadernos, fontes (link, PDF, YouTube, texto), chat com streaming e citação,
   7 templates de output, UI em três painéis com tema Frutiger Aero
+- **chat do caderno** e **chat global** (o que enxerga todos os cadernos e liga o
+  conhecimento entre eles), com as mesmas ferramentas e escopos diferentes
 - motor: **agente LangGraph próprio**, dentro do app. O Hermes saiu do código, da
   configuração, do banco e do unit do systemd
 - o chat responde com o modelo que **você** configura (botão "Modelo"); hoje,
@@ -605,8 +667,8 @@ Funcionando, com **109 testes** e ruff limpo:
 
 Pendências conhecidas, e nenhuma bloqueia o uso:
 
-- `web_search` não existe (D036 aberta: depende de provedor de busca)
-- `AGENTS.md` existe desde agora, para quem for mexer no código
+- `web_search` não existe (D036, adiada com critério)
+- busca global por FTS5 (para a pessoa procurar; o agente já procura)
 
 Verificado, sobre o stack adotado:
 

@@ -121,6 +121,76 @@ def list_notebooks() -> list[dict[str, Any]]:
         ))
 
 
+def list_notebooks_por_criacao() -> list[dict[str, Any]]:
+    """Cadernos em ordem de criação — a ordem canônica da citação no chat global.
+
+    Diferente de `list_notebooks`, que ordena por `updated_at` (o que a home quer:
+    o que você mexeu por último primeiro). Aqui a ordem tem que ser **estável**:
+    se ela mudasse ao editar um caderno, uma citação `[3]` numa mensagem antiga
+    passaria a apontar para outra fonte.
+    """
+    with connect() as conn:
+        return _rows(conn.execute("SELECT * FROM notebooks ORDER BY created_at ASC"))
+
+
+def fontes_ativas_globais() -> list[dict[str, Any]]:
+    """Todas as fontes ativas de todos os cadernos, em ordem canônica.
+
+    A numeração `[n]` do chat global é a **posição nesta lista**. Quem monta o
+    índice do prompt e quem lista por ferramenta usam esta mesma função — se
+    divergissem, o modelo citaria `[3]` apontando para a fonte errada.
+    """
+    with connect() as conn:
+        return _rows(conn.execute(
+            """
+            SELECT s.*, n.title AS notebook_title
+            FROM sources s
+            JOIN notebooks n ON n.id = s.notebook_id
+            WHERE s.active = 1 AND s.status = 'ready'
+            ORDER BY n.created_at ASC, s.created_at ASC
+            """
+        ))
+
+
+def build_global_index(*, por_caderno: int = 8) -> str:
+    """O mapa de todos os cadernos, para o prompt do chat global.
+
+    Calculado na hora, sem cache: é uma consulta e formatação de texto. Um cache
+    com invalidação só se pagaria se isto crescesse muito — e crescer é sinal de
+    que a ferramenta de busca é o caminho, não o índice.
+
+    ``por_caderno`` limita quantas fontes aparecem de cada caderno (D035: saída
+    limitada); o número entre colchetes é a posição real, então truncar não
+    desloca citação.
+    """
+    cadernos = list_notebooks_por_criacao()
+    if not cadernos:
+        return ""
+
+    fontes = fontes_ativas_globais()
+    numeradas = {f["id"]: i for i, f in enumerate(fontes, start=1)}
+
+    linhas = [f"## Seus cadernos ({len(cadernos)})\n"]
+    for caderno in cadernos:
+        minhas = [f for f in fontes if f["notebook_id"] == caderno["id"]]
+        linhas.append(f"### {caderno['title']}")
+        if caderno.get("description"):
+            linhas.append(caderno["description"])
+        if not minhas:
+            linhas.append("(sem fontes ativas)")
+        else:
+            for fonte in minhas[:por_caderno]:
+                linhas.append(
+                    f"[{numeradas[fonte['id']]}] {fonte['title']} "
+                    f"({fonte['kind']}, {fonte['chars']} chars) id: {fonte['id']}"
+                )
+            if len(minhas) > por_caderno:
+                linhas.append(f"(e mais {len(minhas) - por_caderno} fontes neste caderno)")
+        linhas.append("")
+
+    return "\n".join(linhas)
+
+
 def get_notebook(notebook_id: str) -> dict[str, Any] | None:
     with connect() as conn:
         row = conn.execute("SELECT * FROM notebooks WHERE id = ?", (notebook_id,)).fetchone()
@@ -214,8 +284,22 @@ def create_source(
 
 
 def get_source(source_id: str) -> dict[str, Any] | None:
+    """A fonte, com o título do caderno junto.
+
+    O título do caderno vem **sempre**, e não só quando pedido: o chat global
+    precisa dizer de qual caderno veio a fonte que ele leu, e uma consulta extra a
+    cada leitura não se paga. É um join por chave primária.
+    """
     with connect() as conn:
-        row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
+        row = conn.execute(
+            """
+            SELECT s.*, n.title AS notebook_title
+            FROM sources s
+            JOIN notebooks n ON n.id = s.notebook_id
+            WHERE s.id = ?
+            """,
+            (source_id,),
+        ).fetchone()
     return dict(row) if row else None
 
 

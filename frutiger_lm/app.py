@@ -323,7 +323,7 @@ async def get_messages(notebook_id: str) -> list[dict[str, Any]]:
     mostra exatamente o que ele tem em contexto.
     """
     notebook = _notebook_or_404(notebook_id)
-    return await agent.historico(_agente(notebook), notebook_id)
+    return await agent.historico(_agente(notebook), checkpoint.config(notebook_id))
 
 
 @app.post("/api/notebooks/{notebook_id}/chat")
@@ -346,7 +346,8 @@ async def chat(notebook_id: str, payload: dict[str, Any] = Body(...)) -> Streami
             yield _sse("done", {})
             return
 
-        async for evento, dados in agent.eventos(agente, notebook_id, user_input):
+        config = checkpoint.config(notebook_id)
+        async for evento, dados in agent.eventos(agente, config, user_input):
             yield _sse(evento, dados)
 
     return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)
@@ -362,6 +363,56 @@ async def reset_chat(notebook_id: str) -> dict[str, Any]:
     _notebook_or_404(notebook_id)
     await checkpoints.apagar_conversa(notebook_id)
     return {"reset": notebook_id}
+
+
+# --------------------------------------------------------------------------- #
+# Conversa global — todos os cadernos (D023, D039)
+# --------------------------------------------------------------------------- #
+
+def _agente_global() -> Any:
+    try:
+        return agent.montar_global(checkpointer=checkpoints.saver)
+    except llm.ModeloNaoConfigurado as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.get("/api/global/messages")
+async def get_global_messages() -> list[dict[str, Any]]:
+    """A conversa do chat global. Um thread só, no mesmo checkpointer (D019)."""
+    return await agent.historico(_agente_global(), checkpoint.config_global())
+
+
+@app.post("/api/global/chat")
+async def global_chat(payload: dict[str, Any] = Body(...)) -> StreamingResponse:
+    """O chat que enxerga **todos** os cadernos e liga o conhecimento entre eles.
+
+    Mesmas ferramentas do chat do caderno, com outro escopo (D039) — e mesmo
+    formato de eventos, então a interface trata igual.
+    """
+    user_input = (payload.get("input") or "").strip()
+    if not user_input:
+        raise HTTPException(400, "Mensagem vazia")
+
+    async def stream() -> AsyncIterator[str]:
+        try:
+            agente = agent.montar_global(checkpointer=checkpoints.saver)
+        except llm.ModeloNaoConfigurado as exc:
+            yield _sse("error", {"message": str(exc)})
+            yield _sse("done", {})
+            return
+
+        config = checkpoint.config_global()
+        async for evento, dados in agent.eventos(agente, config, user_input):
+            yield _sse(evento, dados)
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+@app.delete("/api/global/chat")
+async def reset_global_chat() -> dict[str, Any]:
+    """Começa a conversa global do zero. Não toca em caderno nenhum."""
+    await checkpoints.apagar_conversa_global()
+    return {"reset": "global"}
 
 
 # --------------------------------------------------------------------------- #

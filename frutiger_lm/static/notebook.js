@@ -21,7 +21,7 @@
     dlOut: document.getElementById("btn-dl-out"),
   };
 
-  var state = { notebook: null, streaming: false, currentOutputMd: "" };
+  var state = { notebook: null, currentOutputMd: "" };
 
   /* ------------------------------------------------------------ helpers */
 
@@ -33,15 +33,6 @@
     if (!origin) return "";
     try { return new URL(origin).hostname.replace(/^www\./, ""); }
     catch (e) { return origin.split("/").pop().slice(0, 40); }
-  }
-
-  function scrollChatIfNearBottom() {
-    var nearBottom = els.messages.scrollHeight - els.messages.scrollTop - els.messages.clientHeight < 140;
-    if (nearBottom) els.messages.scrollTop = els.messages.scrollHeight;
-  }
-
-  function atBottom() {
-    return els.messages.scrollHeight - els.messages.scrollTop - els.messages.clientHeight < 140;
   }
 
   /* ------------------------------------------------------------- status */
@@ -217,17 +208,28 @@
 
   /* ------------------------------------------------------------- chat */
 
-  function bubble(role, html) {
-    var wrap = document.createElement("div");
-    wrap.className = "msg " + (role === "assistant" ? "assistant" : "user");
-    wrap.innerHTML =
-      '<div class="msg-avatar">' + (role === "assistant" ? "◆" : "•") + "</div>" +
-      '<div class="msg-content">' +
-        '<div class="msg-role">' + (role === "assistant" ? "Frutiger LM" : "Você") + "</div>" +
-        '<div class="body md">' + html + "</div>" +
-      "</div>";
-    els.messages.appendChild(wrap);
-    return wrap;
+  /* -------------------------------------------------------------- conversa
+     A renderização e o streaming moram em `C.conversa` (common.js) — o chat
+     global faz exatamente o mesmo. Aqui só fica o que é deste caderno.
+  */
+
+  var conversa = C.conversa({
+    messages: els.messages,
+    input: els.input,
+    send: els.send,
+    url: "/api/notebooks/" + NB_ID + "/chat",
+  });
+
+  function introDoCaderno() {
+    var nb = state.notebook || {};
+    var ativas = (nb.sources || []).filter(function (s) { return s.active && s.status === "ready"; });
+    return ativas.length
+      ? "<p>Este caderno tem <strong>" + ativas.length + "</strong> fonte" + (ativas.length === 1 ? "" : "s") +
+        " no contexto. Pergunte o que quiser — eu cito de onde tirei cada coisa.</p>" +
+        "<p style='color:var(--muted)'>Ideias: <em>\"faça um resumo do que é mais importante\"</em>, " +
+        "<em>\"explique X como se eu tivesse 15 anos\"</em>, <em>\"o que as fontes dizem sobre Y?\"</em></p>"
+      : "<p>Nenhuma fonte ativa ainda. Adicione um link, um PDF ou um texto na coluna da esquerda — " +
+        "depois eu respondo <strong>com base nelas</strong>, não de memória.</p>";
   }
 
   async function loadMessages() {
@@ -239,109 +241,16 @@
       messages = await C.api("/api/notebooks/" + NB_ID + "/messages");
     } catch (err) {
       els.messages.innerHTML = "";
-      bubble("assistant", "<em>Não consegui carregar o histórico: " + C.escapeHtml(err.message) + "</em>");
+      conversa.bolha("assistant", "<em>Não consegui carregar o histórico: " + C.escapeHtml(err.message) + "</em>");
       return;
     }
-    els.messages.innerHTML = "";
-    var shown = messages.filter(function (m) {
-      return (m.role === "user" || m.role === "assistant") && String(m.content || "").trim();
-    });
-
-    if (!shown.length) {
-      var nb = state.notebook || {};
-      var active = (nb.sources || []).filter(function (s) { return s.active && s.status === "ready"; });
-      var intro = active.length
-        ? "<p>Este caderno tem <strong>" + active.length + "</strong> fonte" + (active.length === 1 ? "" : "s") +
-          " no contexto. Pergunte o que quiser — eu cito de onde tirei cada coisa.</p>" +
-          "<p style='color:var(--muted)'>Ideias: <em>\"faça um resumo do que é mais importante\"</em>, " +
-          "<em>\"explique X como se eu tivesse 15 anos\"</em>, <em>\"o que as fontes dizem sobre Y?\"</em></p>"
-        : "<p>Nenhuma fonte ativa ainda. Adicione um link, um PDF ou um texto na coluna da esquerda — " +
-          "depois eu respondo <strong>com base nelas</strong>, não de memória.</p>";
-      bubble("assistant", intro);
-      return;
-    }
-
-    shown.forEach(function (m) {
-      bubble(m.role, m.role === "assistant" ? window.renderMarkdown(m.content) : C.escapeHtml(m.content).replace(/\n/g, "<br>"));
-    });
-    els.messages.scrollTop = els.messages.scrollHeight;
+    conversa.historico(messages, introDoCaderno);
   }
 
-  function toolNote(name, preview) {
-    var div = document.createElement("div");
-    div.className = "tool-note";
-    div.innerHTML = "⚙ <span class='tname'>" + C.escapeHtml(name || "tool") + "</span>" +
-      (preview ? " — " + C.escapeHtml(String(preview).slice(0, 130)) : "");
-    els.messages.appendChild(div);
-    scrollChatIfNearBottom();
+  function send() {
+    conversa.enviar(els.input.value);
   }
 
-  async function send() {
-    var text = els.input.value.trim();
-    if (!text || state.streaming) return;
-
-    els.input.value = "";
-    autoResize();
-    bubble("user", C.escapeHtml(text).replace(/\n/g, "<br>"));
-
-    var node = bubble("assistant", '<span class="typing"></span>');
-    var body = node.querySelector(".body");
-    var buffer = "";
-    var pending = false;
-    var stick = atBottom();
-
-    function paint() {
-      if (pending) return;
-      pending = true;
-      requestAnimationFrame(function () {
-        pending = false;
-        body.innerHTML = window.renderMarkdown(buffer) + '<span class="typing"></span>';
-        if (stick) els.messages.scrollTop = els.messages.scrollHeight;
-      });
-    }
-
-    state.streaming = true;
-    els.send.disabled = true;
-
-    try {
-      var resp = await C.postStream("/api/notebooks/" + NB_ID + "/chat", { input: text });
-
-      await C.readSSE(resp, function (name, data) {
-        if (name === "assistant.delta") {
-          buffer += data.delta || "";
-          paint();
-        } else if (name === "tool.started" || name === "tool.completed") {
-          if (name === "tool.started") {
-            toolNote(data.tool_name, data.preview || (data.args ? JSON.stringify(data.args).slice(0, 110) : ""));
-          }
-        } else if (name === "assistant.completed") {
-          if (data.content) buffer = data.content;
-          body.innerHTML = window.renderMarkdown(buffer);
-        } else if (name === "error") {
-          body.innerHTML = window.renderMarkdown(buffer) +
-            '<p style="color:var(--danger)">⚠ ' + C.escapeHtml(data.message || "erro") + "</p>";
-        } else if (name === "done") {
-          body.innerHTML = buffer
-            ? window.renderMarkdown(buffer)
-            : '<span style="color:var(--muted)">(o motor não devolveu texto)</span>';
-        }
-      });
-    } catch (err) {
-      body.innerHTML = '<span style="color:var(--danger)">⚠ ' + C.escapeHtml(err.message) + "</span>";
-    } finally {
-      state.streaming = false;
-      els.send.disabled = false;
-      els.input.focus();
-      if (stick) els.messages.scrollTop = els.messages.scrollHeight;
-    }
-  }
-
-  function autoResize() {
-    els.input.style.height = "auto";
-    els.input.style.height = Math.min(els.input.scrollHeight, 220) + "px";
-  }
-
-  els.input.addEventListener("input", autoResize);
   els.input.addEventListener("keydown", function (ev) {
     if (ev.key === "Enter" && !ev.shiftKey && !ev.metaKey && !ev.ctrlKey) {
       ev.preventDefault();
@@ -351,7 +260,7 @@
   els.send.addEventListener("click", send);
 
   document.getElementById("btn-reset").addEventListener("click", async function () {
-    if (state.streaming) return;
+    if (conversa.ocupado()) return;
     if (!confirm("Começar uma conversa nova?\n\nO histórico do chat será apagado. As fontes e os outputs ficam.")) return;
     try {
       await C.api("/api/notebooks/" + NB_ID + "/chat", { method: "DELETE" });

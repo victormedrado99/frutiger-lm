@@ -110,6 +110,144 @@
     return resp;
   }
 
+  /* ----------------------------------------------------------- conversa
+     Os dois chats do app — o de um caderno e o global — fazem exatamente a
+     mesma coisa: abrir o SSE do motor, acumular os pedaços numa bolha e anotar
+     as ferramentas usadas.
+
+     Isto mora num lugar só porque é a parte com INVARIANTE. Duas cópias
+     divergiriam do jeito previsível: uma anotaria a ferramenta e a outra não,
+     uma trataria o `assistant.completed` e a outra deixaria o texto pela metade.
+     O que muda entre os chats é o endereço e o texto de boas-vindas.
+  */
+  function conversa(opcoes) {
+    var caixa = opcoes.messages;
+    var input = opcoes.input;
+    var botao = opcoes.send;
+    var ocupado = false;
+
+    function pertoDoFim() {
+      return caixa.scrollHeight - caixa.scrollTop - caixa.clientHeight < 140;
+    }
+
+    function bolha(papel, html) {
+      var wrap = document.createElement("div");
+      wrap.className = "msg " + (papel === "assistant" ? "assistant" : "user");
+      wrap.innerHTML =
+        '<div class="msg-avatar">' + (papel === "assistant" ? "◆" : "•") + "</div>" +
+        '<div class="msg-content">' +
+          '<div class="msg-role">' + (papel === "assistant" ? "Frutiger LM" : "Você") + "</div>" +
+          '<div class="body md">' + html + "</div>" +
+        "</div>";
+      caixa.appendChild(wrap);
+      return wrap;
+    }
+
+    function notaDeFerramenta(nome, previa) {
+      var div = document.createElement("div");
+      div.className = "tool-note";
+      div.innerHTML = "⚙ <span class='tname'>" + escapeHtml(nome || "ferramenta") + "</span>" +
+        (previa ? " — " + escapeHtml(String(previa).slice(0, 130)) : "");
+      caixa.appendChild(div);
+      if (pertoDoFim()) caixa.scrollTop = caixa.scrollHeight;
+    }
+
+    function historico(mensagens, quandoVazio) {
+      caixa.innerHTML = "";
+      var visiveis = (mensagens || []).filter(function (m) {
+        return (m.role === "user" || m.role === "assistant") && String(m.content || "").trim();
+      });
+      if (!visiveis.length) {
+        if (quandoVazio) bolha("assistant", quandoVazio());
+        return;
+      }
+      visiveis.forEach(function (m) {
+        bolha(m.role, m.role === "assistant"
+          ? window.renderMarkdown(m.content)
+          : escapeHtml(m.content).replace(/\n/g, "<br>"));
+      });
+      caixa.scrollTop = caixa.scrollHeight;
+    }
+
+    async function enviar(texto) {
+      texto = String(texto || "").trim();
+      if (!texto || ocupado) return false;
+
+      input.value = "";
+      autoResize();
+      bolha("user", escapeHtml(texto).replace(/\n/g, "<br>"));
+
+      var no = bolha("assistant", '<span class="typing"></span>');
+      var corpo = no.querySelector(".body");
+      var acumulado = "";
+      var agendado = false;
+      var grudar = pertoDoFim();
+
+      // Um requestAnimationFrame por lote de deltas: pintar a cada pedaço
+      // travaria o navegador num texto longo.
+      function pintar() {
+        if (agendado) return;
+        agendado = true;
+        requestAnimationFrame(function () {
+          agendado = false;
+          corpo.innerHTML = window.renderMarkdown(acumulado) + '<span class="typing"></span>';
+          if (grudar) caixa.scrollTop = caixa.scrollHeight;
+        });
+      }
+
+      ocupado = true;
+      if (botao) botao.disabled = true;
+      try {
+        var resp = await postStream(opcoes.url, { input: texto });
+        await readSSE(resp, function (nome, dados) {
+          if (nome === "assistant.delta") {
+            acumulado += dados.delta || "";
+            pintar();
+          } else if (nome === "tool.started") {
+            notaDeFerramenta(dados.tool_name, dados.preview ||
+              (dados.args ? JSON.stringify(dados.args).slice(0, 110) : ""));
+          } else if (nome === "assistant.completed") {
+            if (dados.content) acumulado = dados.content;
+            corpo.innerHTML = window.renderMarkdown(acumulado);
+          } else if (nome === "error") {
+            corpo.innerHTML = window.renderMarkdown(acumulado) +
+              '<p style="color:var(--danger)">⚠ ' + escapeHtml(dados.message || "erro") + "</p>";
+          } else if (nome === "done") {
+            corpo.innerHTML = acumulado
+              ? window.renderMarkdown(acumulado)
+              : '<span style="color:var(--muted)">(o motor não devolveu texto)</span>';
+          }
+        });
+        return true;
+      } catch (err) {
+        corpo.innerHTML = '<span style="color:var(--danger)">⚠ ' + escapeHtml(err.message) + "</span>";
+        return false;
+      } finally {
+        ocupado = false;
+        if (botao) botao.disabled = false;
+        if (input) input.focus();
+        if (grudar) caixa.scrollTop = caixa.scrollHeight;
+      }
+    }
+
+    function autoResize() {
+      if (!input) return;
+      input.style.height = "auto";
+      input.style.height = Math.min(input.scrollHeight, 220) + "px";
+    }
+
+    if (input) input.addEventListener("input", autoResize);
+
+    return {
+      bolha: bolha,
+      nota: notaDeFerramenta,
+      historico: historico,
+      enviar: enviar,
+      autoResize: autoResize,
+      ocupado: function () { return ocupado; },
+    };
+  }
+
   function openModal(id) {
     var el = document.getElementById(id);
     if (el) el.hidden = false;
@@ -127,6 +265,7 @@
     formatChars: formatChars,
     readSSE: readSSE,
     postStream: postStream,
+    conversa: conversa,
     openModal: openModal,
     closeModal: closeModal,
   };

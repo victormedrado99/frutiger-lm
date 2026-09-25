@@ -116,6 +116,9 @@ ou simplesmente rodar `uv run frutiger-lm` quando precisar.
 ## Usando
 
 1. **Cadernos** — a primeira tela lista seus cadernos. "Novo caderno" cria um.
+   Na barra de baixo, **"Pergunte a todos os seus cadernos"**: um chat que enxerga
+   tudo de uma vez, procura em cada caderno e mostra o que se liga com o quê —
+   sempre dizendo de qual caderno veio cada informação.
 2. Ao abrir um caderno você tem três colunas:
    - **Fontes** (esquerda): adicione link, PDF, vídeo do YouTube ou texto colado.
      Cada fonte tem um interruptor: desligue para tirá-la do contexto sem apagar.

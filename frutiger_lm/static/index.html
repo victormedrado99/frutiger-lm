@@ -98,6 +98,23 @@
     </div>
   </div>
 
+  <!-- chat global: a barra de baixo conversa com todos os cadernos (F2) -->
+  <div class="dock" id="dock">
+    <div class="dock-panel" id="dock-panel">
+      <div class="dock-head">
+        <span class="dock-title">◆ Todos os seus cadernos</span>
+        <div class="spacer"></div>
+        <button class="btn btn-sm" id="btn-dock-reset" title="Começa a conversa global do zero">Nova conversa</button>
+      </div>
+      <div class="messages dock-messages" id="dock-messages"></div>
+    </div>
+    <div class="dock-bar">
+      <textarea id="dock-input" rows="1" placeholder="Pergunte a todos os seus cadernos…" spellcheck="false"></textarea>
+      <button class="btn btn-primary" id="dock-send">Enviar</button>
+    </div>
+  </div>
+
+  <script src="/static/md.js"></script>
   <script src="/static/common.js"></script>
   <script src="/static/index.js"></script>
 </body>
