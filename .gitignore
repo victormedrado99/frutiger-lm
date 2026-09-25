@@ -11,6 +11,9 @@ __pycache__/
 # dados: cadernos, fontes e outputs são SEUS, não vão para o git
 data/
 
+# sketches de design: descartáveis por definição
+sketches/
+
 # sistema
 .DS_Store
 *.log
