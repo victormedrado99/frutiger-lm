@@ -6,6 +6,9 @@ Notebooks de estudo com as suas fontes, conversa e outputs — usando o
 > **Projeto independente.** Usa o Hermes Agent e o modelo que você configurar,
 > sem nenhuma afiliação com o Nous Research.
 
+> **Arquitetura e roadmap:** veja [PROJETO.md](PROJETO.md). É o documento-vivo do
+> projeto — toda decisão estrutural está registrada lá, com status e justificativa.
+
 Se você já usou o NotebookLM do Google, a ideia é a mesma, mas sem imagens e sem
 áudio: só **organizar cadernos de estudo, juntar fontes e conversar com elas**.
 A diferença é que o motor é um agente de verdade — ele tem terminal, leitura de
