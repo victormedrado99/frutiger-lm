@@ -14,9 +14,9 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, ingest, model_store, prompts
+from . import db, ingest, knowledge, model_store, prompts
 from .config import settings
-from .engine import agent, checkpoint, llm
+from .engine import agent, checkpoint, extracao, llm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("frutiger")
@@ -413,6 +413,115 @@ async def reset_global_chat() -> dict[str, Any]:
     """Começa a conversa global do zero. Não toca em caderno nenhum."""
     await checkpoints.apagar_conversa_global()
     return {"reset": "global"}
+
+
+# --------------------------------------------------------------------------- #
+# Grafo de conhecimento (F3)
+# --------------------------------------------------------------------------- #
+# Tudo aqui passa pelo `knowledge`: a interface e o agente usam a MESMA
+# implementação (D024), então o botão "mesclar" e a ferramenta do agente não podem
+# divergir no que fazem.
+
+
+@app.get("/api/grafo")
+async def get_grafo(
+    notebook_id: str | None = None,
+    peso_minimo: int = 1,
+    sem_co_ocorrencia: bool = False,
+) -> dict[str, Any]:
+    """O grafo para desenhar, com filtros."""
+    if notebook_id:
+        _notebook_or_404(notebook_id)
+    return {
+        **knowledge.grafo(
+            notebook_id=notebook_id,
+            peso_minimo=max(1, peso_minimo),
+            incluir_co_ocorrencia=not sem_co_ocorrencia,
+        ),
+        **knowledge.estatisticas(),
+        "orfaos": knowledge.orfaos(),
+    }
+
+
+@app.get("/api/conceitos")
+async def listar_conceitos(termo: str = "") -> list[dict[str, Any]]:
+    """Busca conceitos, ou lista todos quando não há termo."""
+    if termo.strip():
+        return knowledge.buscar(termo)
+    return knowledge.grafo()["nodes"]
+
+
+@app.get("/api/conceitos/{concept_id}")
+async def ver_conceito(concept_id: str) -> dict[str, Any]:
+    """O conceito, o que se liga a ele e as menções com o trecho de origem."""
+    dado = knowledge.vizinhanca(concept_id)
+    if not dado:
+        raise HTTPException(404, "Conceito não encontrado")
+    return dado
+
+
+@app.post("/api/conceitos/mesclar")
+async def mesclar_conceitos(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Funde dois conceitos. As menções migram — a prova não se perde."""
+    de = (payload.get("de") or "").strip()
+    para = (payload.get("para") or "").strip()
+    if not de or not para:
+        raise HTTPException(400, "Informe os dois conceitos")
+    if de == para:
+        raise HTTPException(400, "Os dois conceitos são o mesmo")
+
+    fundido = knowledge.mesclar(de, para)
+    if not fundido:
+        raise HTTPException(404, "Conceito não encontrado")
+    return fundido
+
+
+@app.post("/api/conceitos/{concept_id}/renomear")
+async def renomear_conceito(concept_id: str, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Renomeia. Se o nome novo já existir, mescla em vez de recusar."""
+    nome = (payload.get("nome") or "").strip()
+    if not nome:
+        raise HTTPException(400, "Informe o nome")
+
+    resultado = knowledge.renomear(concept_id, nome)
+    if not resultado:
+        raise HTTPException(404, "Conceito não encontrado")
+    return resultado
+
+
+@app.delete("/api/conceitos/{concept_id}")
+async def apagar_conceito(concept_id: str) -> dict[str, Any]:
+    if not knowledge.get_conceito(concept_id):
+        raise HTTPException(404, "Conceito não encontrado")
+    knowledge.apagar(concept_id)
+    return {"apagado": concept_id}
+
+
+@app.post("/api/notebooks/{notebook_id}/extrair")
+async def extrair_conceitos(notebook_id: str) -> StreamingResponse:
+    """Extrai os conceitos das fontes do caderno, com progresso na tela.
+
+    É ação explícita (D042), não efeito de adicionar fonte: uma fonte de 50 mil
+    caracteres dá cerca de 7 chamadas de modelo, e a conta é da pessoa.
+
+    Streaming porque a extração é longa — prender isso numa requisição sem retorno
+    é pedir para a pessoa achar que travou e recarregar no meio.
+    """
+    _notebook_or_404(notebook_id)
+
+    async def stream() -> AsyncIterator[str]:
+        try:
+            llm.atual()
+        except llm.ModeloNaoConfigurado as exc:
+            yield _sse("error", {"message": str(exc)})
+            yield _sse("done", {})
+            return
+
+        async for evento in extracao.extrair_caderno(notebook_id):
+            nome = evento.pop("evento")
+            yield _sse(nome, evento)
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 # --------------------------------------------------------------------------- #

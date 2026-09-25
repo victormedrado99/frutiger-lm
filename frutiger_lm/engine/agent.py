@@ -26,6 +26,7 @@ from langchain_core.tools import BaseTool
 from ..db import get_notebook
 from ..prompts import build_global_prompt, build_notebook_prompt
 from . import llm
+from .tools.grafo import ferramentas_de_grafo
 from .tools.leitura import Escopo, ferramentas_de_leitura
 from .tools.web import ferramentas_de_web
 
@@ -35,21 +36,33 @@ log = logging.getLogger("frutiger.engine")
 def catalogo(notebook_id: str) -> list[BaseTool]:
     """O que o chat **de um caderno** expõe ao modelo (D025).
 
-    As três de leitura presas àquele caderno (D034) e `web_extract`. As de
-    escrita e as de documento entram aqui quando existirem — e é este ponto único
-    que decide exposição, para não virar 25 ferramentas sempre visíveis.
+    As três de leitura presas àquele caderno (D034), `web_extract` e as de grafo.
+    As de escrita e as de documento entram aqui quando existirem — e é este ponto
+    único que decide exposição, para não virar 25 ferramentas sempre visíveis.
+
+    As de grafo entram nos dois catálogos sem escopo: o grafo é a camada que liga, e
+    o conceito que aparece em dois cadernos é o que há de mais interessante nele
+    (D045).
     """
-    return [*ferramentas_de_leitura(Escopo.do_caderno(notebook_id)), *ferramentas_de_web()]
+    return [
+        *ferramentas_de_leitura(Escopo.do_caderno(notebook_id)),
+        *ferramentas_de_web(),
+        *ferramentas_de_grafo(),
+    ]
 
 
 def catalogo_global() -> list[BaseTool]:
     """O que o chat **global** expõe: as mesmas ferramentas, outro escopo.
 
-    Nenhuma ferramenta nova (D039). `listar_fontes` no escopo global vira o mapa
-    de todos os cadernos, e `ler_fonte`/`buscar_nas_fontes` alcançam qualquer um.
-    Duas listagens parecidas só dariam ao modelo a chance de escolher a errada.
+    Nenhuma ferramenta nova de leitura (D039). `listar_fontes` no escopo global vira
+    o mapa de todos os cadernos, e `ler_fonte`/`buscar_nas_fontes` alcançam qualquer
+    um. Duas listagens parecidas só dariam ao modelo a chance de escolher a errada.
     """
-    return [*ferramentas_de_leitura(Escopo.todos()), *ferramentas_de_web()]
+    return [
+        *ferramentas_de_leitura(Escopo.todos()),
+        *ferramentas_de_web(),
+        *ferramentas_de_grafo(),
+    ]
 
 
 def _montar(modelo, ferramentas, prompt: str, checkpointer) -> Any:

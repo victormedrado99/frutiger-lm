@@ -181,9 +181,21 @@ def test_a_listagem_global_limita_e_avisa():
 
 
 def test_o_catalogo_global_tem_as_mesmas_ferramentas():
-    """D039: nenhuma ferramenta nova — a diferença é o escopo."""
+    """D039: nenhuma ferramenta nova de LEITURA — a diferença é o escopo.
+
+    As três de grafo entram nos dois catálogos (D045), sem escopo: o grafo é a
+    camada que liga, e um conceito em dois cadernos é o que ele tem de melhor.
+    """
     nomes = {t.name for t in agent.catalogo_global()}
-    assert nomes == {"listar_fontes", "ler_fonte", "buscar_nas_fontes", "web_extract"}
+    assert nomes == {
+        "listar_fontes",
+        "ler_fonte",
+        "buscar_nas_fontes",
+        "web_extract",
+        "buscar_no_grafo",
+        "vizinhanca_do_conceito",
+        "registrar_relacao",
+    }
     assert nomes == {t.name for t in agent.catalogo(caderno("X"))}
 
 

@@ -40,6 +40,10 @@ def test_o_catalogo_do_caderno_tem_leitura_e_web():
         "ler_fonte",
         "buscar_nas_fontes",
         "web_extract",
+        # as de grafo (F3), globais por decisão (D045)
+        "buscar_no_grafo",
+        "vizinhanca_do_conceito",
+        "registrar_relacao",
     }
 
 

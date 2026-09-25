@@ -407,8 +407,36 @@ def vizinhanca(concept_id: str) -> dict[str, Any] | None:
 # --------------------------------------------------------------------------
 
 
+def _cadernos_por_conceito(ids: list[str] | None = None) -> dict[str, list[str]]:
+    """Em quais cadernos cada conceito aparece.
+
+    É a informação mais interessante do grafo: um conceito em dois cadernos é uma
+    ponte entre áreas, e é o que a tela usa para colorir o desenho.
+    """
+    sql = """SELECT DISTINCT m.concept_id AS cid, n.title AS titulo
+             FROM mentions m JOIN notebooks n ON n.id = m.notebook_id"""
+    parametros: tuple = ()
+    if ids is not None:
+        if not ids:
+            return {}
+        sql += f" WHERE m.concept_id IN ({','.join('?' * len(ids))})"
+        parametros = tuple(ids)
+
+    with connect() as conn:
+        linhas = conn.execute(sql, parametros).fetchall()
+
+    mapa: dict[str, list[str]] = {}
+    for linha in linhas:
+        mapa.setdefault(linha["cid"], []).append(linha["titulo"])
+    return {cid: sorted(set(titulos)) for cid, titulos in mapa.items()}
+
+
 def buscar(termo: str, limite: int = 20) -> list[dict[str, Any]]:
-    """Busca por nome ou alias. É o que a pessoa usa para achar um conceito."""
+    """Busca por nome ou alias, já dizendo em quais cadernos o conceito aparece.
+
+    É o que a pessoa usa para achar um conceito — e o que o agente usa antes de
+    pedir a vizinhança, então a lista precisa bastar para ele decidir.
+    """
     alvo = f"%{normalizar(termo)}%"
     if not termo or alvo == "%%":
         return []
@@ -421,7 +449,14 @@ def buscar(termo: str, limite: int = 20) -> list[dict[str, Any]]:
                LIMIT ?""",
             (alvo, f"%{str(termo).casefold()}%", limite),
         ).fetchall()
-    return [dict(linha) for linha in linhas]
+
+    achados = [dict(linha) for linha in linhas]
+    cadernos = _cadernos_por_conceito([c["id"] for c in achados])
+    for conceito in achados:
+        titulos = cadernos.get(conceito["id"], [])
+        conceito["notebooks"] = titulos
+        conceito["ponte"] = len(titulos) > 1
+    return achados
 
 
 def grafo(
@@ -476,19 +511,14 @@ def grafo(
             )
         ]
 
-        # Em quais cadernos cada conceito aparece — é o que colore o desenho.
-        por_conceito: dict[str, set[str]] = {}
-        for linha in conn.execute(
-            """SELECT DISTINCT m.concept_id AS cid, m.notebook_id AS nid, n.title AS titulo
-               FROM mentions m JOIN notebooks n ON n.id = m.notebook_id"""
-        ):
-            por_conceito.setdefault(linha["cid"], set()).add(linha["titulo"])
-
-        cadernos = sorted({t for titulos in por_conceito.values() for t in titulos})
+    # Fora do bloco de propósito: conexão aninhada dentro de outra aberta é o padrão
+    # que trava no SQLite — foi o que me pegou no `mesclar`.
+    por_conceito = _cadernos_por_conceito(list(ids))
+    cadernos = sorted({t for titulos in por_conceito.values() for t in titulos})
 
     for conceito in conceitos:
-        titulos = por_conceito.get(conceito["id"], set())
-        conceito["notebooks"] = sorted(titulos)
+        titulos = por_conceito.get(conceito["id"], [])
+        conceito["notebooks"] = titulos
         # Um conceito pode estar em mais de um caderno: é o que a interface chama
         # de "ponte", e é a informação mais interessante do grafo.
         conceito["ponte"] = len(titulos) > 1
