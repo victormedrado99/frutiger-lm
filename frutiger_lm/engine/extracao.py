@@ -75,6 +75,81 @@ INSTRUCOES = """Você extrai conhecimento estruturado de um trecho de material d
 
 
 # --------------------------------------------------------------------------
+# O formato da resposta, em texto
+# --------------------------------------------------------------------------
+#
+# Por que isto existe, e por que não é redundante com o Pydantic:
+#
+# O `with_structured_output` do langchain-openai tenta, por padrão, mandar o schema
+# como `response_format: json_schema` — e a DeepSeek recusa ("This response_format
+# type is unavailable now"). As alternativas foram medidas contra a API real:
+#
+#   method="function_calling" → o modelo de raciocínio recusa: "Thinking mode does
+#                               not support this tool_choice"
+#   method="json_mode"        → funciona, MAS o provedor recebe apenas
+#                               `response_format: json_object`: o schema NÃO chega.
+#                               O modelo só sabe o que o prompt disser — e sem a
+#                               descrição ele chutou `{"conceito": ...}` no lugar de
+#                               `{"nome": ...}` e a validação falhou.
+#
+# Então o formato tem que estar no prompt. Ele é GERADO do próprio Pydantic para não
+# envelhecer: descrição escrita à mão divergiria do validador em silêncio, que é
+# exatamente o tipo de defeito que este projeto tenta não ter.
+#
+# E `json_mode` exige a palavra "json" em algum lugar do prompt. Está no texto final.
+
+
+def _interno(anotacao: Any) -> type[BaseModel] | None:
+    """O modelo dentro de um `list[Modelo]`, ou None."""
+    if getattr(anotacao, "__origin__", None) is not list:
+        return None
+    argumentos = getattr(anotacao, "__args__", ())
+    if len(argumentos) != 1:
+        return None
+    interno = argumentos[0]
+    if isinstance(interno, type) and issubclass(interno, BaseModel):
+        return interno
+    return None
+
+
+def _tipo_legivel(anotacao: Any) -> str:
+    interno = _interno(anotacao)
+    if interno is not None:
+        return "lista de objetos com " + ", ".join(interno.model_fields)
+    if getattr(anotacao, "__origin__", None) is list:
+        return "lista de texto"
+    if isinstance(anotacao, type) and issubclass(anotacao, BaseModel):
+        return "objeto com " + ", ".join(anotacao.model_fields)
+    return "texto"
+
+
+def _descricao_do_formato(modelo: type[BaseModel]) -> str:
+    linhas = ["Responda APENAS com um JSON, sem texto em volta, neste formato:", "{"]
+    for nome, campo in modelo.model_fields.items():
+        linhas.append(
+            f'  "{nome}": {_tipo_legivel(campo.annotation)} — '
+            f"{(campo.description or '').strip()}"
+        )
+        interno = _interno(campo.annotation)
+        if interno is not None:
+            for subnome, subcampo in interno.model_fields.items():
+                linhas.append(
+                    f'      "{subnome}": {_tipo_legivel(subcampo.annotation)} — '
+                    f"{(subcampo.description or '').strip()}"
+                )
+    linhas.append("}")
+    return "\n".join(linhas)
+
+
+FORMATO = _descricao_do_formato(Extracao)
+
+# Medido contra a API real: `function_calling` não serve nos modelos de raciocínio, e
+# `json_schema` não é aceito. `json_mode` é o modo compatível — e o mais suportado
+# entre provedores OpenAI-compatíveis.
+METODO_ESTRUTURADO = "json_mode"
+
+
+# --------------------------------------------------------------------------
 # Fatiamento
 # --------------------------------------------------------------------------
 
@@ -114,7 +189,9 @@ def blocos(texto: str, *, tamanho: int = TAMANHO_BLOCO, sobreposicao: int = SOBR
 def _mensagens(bloco: str, vocabulario: list[str]) -> list[Any]:
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    sistema = INSTRUCOES
+    # O formato vai no prompt porque `json_mode` não envia o schema ao provedor, e a
+    # palavra "JSON" tem que aparecer para o modo ser aceito.
+    sistema = INSTRUCOES + "\n\n" + FORMATO
     if vocabulario:
         # D041 em ação: o modelo vê o que já existe antes de nomear o que achou.
         lista = "\n".join(f"- {nome}" for nome in vocabulario)
@@ -126,8 +203,14 @@ def _mensagens(bloco: str, vocabulario: list[str]) -> list[Any]:
 
 
 async def extrair_bloco(bloco: str, vocabulario: list[str], *, modelo: Any = None) -> Extracao:
-    """Uma chamada de modelo, com saída estruturada validada pelo provedor (D021)."""
-    extrator = (modelo or llm.atual()).with_structured_output(Extracao)
+    """Uma chamada de modelo, com o JSON validado pelo Pydantic (D021).
+
+    O método é `json_mode` por medição, não por preferência: ver a nota acima de
+    METODO_ESTRUTURADO.
+    """
+    extrator = (modelo or llm.atual()).with_structured_output(
+        Extracao, method=METODO_ESTRUTURADO
+    )
     resultado = await extrator.ainvoke(_mensagens(bloco, vocabulario))
     if isinstance(resultado, Extracao):
         return resultado

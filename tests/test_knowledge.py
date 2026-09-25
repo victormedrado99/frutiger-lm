@@ -257,6 +257,43 @@ def test_o_grafo_marca_o_conceito_que_aparece_em_mais_de_um_caderno():
     assert len(no["notebooks"]) == 2
 
 
+def test_o_peso_minimo_filtra_a_co_ocorrencia_e_preserva_a_afirmada():
+    """A afirmada não se filtra por peso: ela é afirmação do material, não
+    coincidência de vizinhança.
+
+    Descoberto no material real: a rota mostrada na tela escondia as 93 ligações
+    AFIRMADAS (todas de peso 1) e mostrava as co-ocorrências fracas, porque o filtro
+    de peso valia para os dois tipos. Ao contrário do que se quer.
+    """
+    nb = caderno()
+    src = fonte(nb, TEXTO)
+    a = knowledge.achar_ou_criar("ALFA")
+    b = knowledge.achar_ou_criar("BETA")
+    c = knowledge.achar_ou_criar("GAMA")
+    for conceito in (a, b, c):
+        knowledge.registrar_mencao(
+            conceito["id"],
+            notebook_id=nb,
+            trecho="O protocolo KWP2000 roda sobre a linha K.",
+            referencia=TEXTO,
+            source_id=src["id"],
+        )
+    knowledge.ligar(a["id"], b["id"], knowledge.CO_OCORRENCIA)          # peso 1
+    knowledge.ligar(b["id"], c["id"], knowledge.CO_OCORRENCIA)          # peso 1
+    knowledge.ligar(c["id"], a["id"], knowledge.CO_OCORRENCIA)          # peso 1
+    knowledge.ligar(c["id"], a["id"], knowledge.CO_OCORRENCIA)          # -> peso 2
+    knowledge.ligar_explicito(
+        a["id"], b["id"], trecho="O protocolo KWP2000 roda sobre a linha K.", referencia=TEXTO, quem="modelo"
+    )
+
+    g = knowledge.grafo(peso_minimo=2)
+    tipos = {(e["kind"], e["weight"]) for e in g["edges"]}
+
+    assert (knowledge.EXPLICITA, 1) in tipos, "a afirmada sumiu no filtro de peso"
+    assert (knowledge.CO_OCORRENCIA, 2) in tipos
+    assert (knowledge.CO_OCORRENCIA, 1) not in tipos, "a co-ocorrência de peso 1 passou"
+
+
 def test_grafo_vazio_nao_quebra():
     assert knowledge.grafo() == {"nodes": [], "edges": [], "notebooks": []}
 

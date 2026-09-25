@@ -426,6 +426,68 @@
     if (ev.key === "Enter") { ev.preventDefault(); els.title.blur(); }
   });
 
+  /* --------------------------------------------------------- extrair (F3)
+     Ação explícita (D042): extrair custa chamadas de modelo, então quem manda é a
+     pessoa. O progresso aparece porque uma fonte grande leva minutos — sem retorno
+     na tela, a pessoa acha que travou e recarrega no meio.
+  */
+
+  var btnExtrair = document.getElementById("btn-extrair");
+  var caixaProgresso = document.getElementById("extrair-progresso");
+
+  function progresso(html) {
+    caixaProgresso.hidden = false;
+    caixaProgresso.innerHTML = html;
+  }
+
+  btnExtrair.addEventListener("click", async function () {
+    btnExtrair.disabled = true;
+    progresso("Lendo as fontes…");
+
+    var descartadas = 0;
+    try {
+      var resp = await C.postStream("/api/notebooks/" + NB_ID + "/extrair", {});
+      await C.readSSE(resp, function (nome, dados) {
+        if (nome === "extract.next") {
+          progresso("Fonte " + dados.indice + " de " + dados.total + ": <b>" +
+            C.escapeHtml(dados.fonte) + "</b>");
+        } else if (nome === "extract.source") {
+          progresso("Fonte <b>" + C.escapeHtml(dados.fonte) + "</b> — analisando " +
+            dados.blocos + " bloco(s)…");
+        } else if (nome === "extract.block") {
+          progresso("Analisando o bloco " + dados.bloco + " de " + dados.total +
+            (dados.conceitos ? " · " + dados.conceitos + " conceito(s) neste" : ""));
+        } else if (nome === "extract.source_done") {
+          descartadas += dados.descartadas || 0;
+          progresso("✓ <b>" + C.escapeHtml(dados.fonte) + "</b>: " +
+            dados.mencionadas + " menção(ões)" +
+            (dados.descartadas ? " · " + dados.descartadas + " descartado(s)" : ""));
+        } else if (nome === "extract.done") {
+          var partes = [
+            "Pronto: <b>" + (dados.conceitos || 0) + "</b> conceito(s), " +
+            (dados.arestas || 0) + " ligação(ões), " + (dados.mencoes || 0) + " menção(ões).",
+          ];
+          if (descartadas) {
+            partes.push(
+              descartadas + " trecho(s) descartado(s) por não existirem mesmo na fonte — " +
+              "é a conferência da ancoragem funcionando."
+            );
+          }
+          partes.push('<a href="/">ver o grafo →</a>');
+          progresso(partes.join("<br>"));
+          C.toast("Conceitos extraídos.", "ok");
+        } else if (nome === "error") {
+          progresso('<span style="color:var(--danger)">' + C.escapeHtml(dados.message) + "</span>");
+          C.toast("A extração falhou.", "err");
+        }
+      });
+    } catch (err) {
+      progresso('<span style="color:var(--danger)">' + C.escapeHtml(err.message) + "</span>");
+    } finally {
+      btnExtrair.disabled = false;
+    }
+  });
+
   /* --------------------------------------------------------- start */
 
   (async function init() {

@@ -500,14 +500,18 @@ def grafo(
 
         tipos = [CO_OCORRENCIA, EXPLICITA] if incluir_co_ocorrencia else [EXPLICITA]
         marcadores = ",".join("?" * len(tipos))
+        # O peso filtra SÓ a co-ocorrência. A aresta afirmada é uma afirmação do
+        # material, não uma coincidência de vizinhança: filtrá-la por peso esconderia
+        # justamente as ligações com trecho, que são as que valem.
         arestas = [
             dict(linha)
             for linha in conn.execute(
                 f"""SELECT * FROM edges
-                    WHERE kind IN ({marcadores}) AND weight >= ?
+                    WHERE kind IN ({marcadores})
+                      AND (kind = ? OR weight >= ?)
                       AND a_id IN ({",".join("?" * len(ids))})
                       AND b_id IN ({",".join("?" * len(ids))})""",
-                (*tipos, peso_minimo, *ids, *ids),
+                (*tipos, EXPLICITA, peso_minimo, *ids, *ids),
             )
         ]
 

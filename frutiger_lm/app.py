@@ -90,6 +90,24 @@ async def notebook_page(notebook_id: str) -> FileResponse:  # noqa: ARG001 (rota
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+@app.middleware("http")
+async def revalidar_estaticos(request: Any, call_next: Any) -> Any:
+    """`no-cache` nos estáticos: revalida sempre pelo etag.
+
+    Descoberto na pele: sem cabeçalho nenhum, o navegador aplica cache heurístico e
+    continua servindo o CSS antigo depois de um `git pull`. O sintoma é cruel — a
+    correção está no disco, o servidor serve a nova, e a tela mostra a velha, então
+    o defeito parece ser do código que você acabou de escrever.
+
+    `no-cache` não significa "não guarde": significa "confirme antes de usar". Com
+    etag, a confirmação é um 304 barato.
+    """
+    resposta = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        resposta.headers["Cache-Control"] = "no-cache"
+    return resposta
+
+
 # --------------------------------------------------------------------------- #
 # Status
 # --------------------------------------------------------------------------- #

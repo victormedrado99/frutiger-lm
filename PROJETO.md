@@ -83,6 +83,9 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D042 | Extração é ação **explícita** (botão/ferramenta), não efeito de adicionar fonte | DECIDIDO |
 | D043 | Aresta de co-ocorrência sai do bloco; aresta explícita **exige trecho** | DECIDIDO |
 | D044 | Extração é lote, não subgrafo do LangGraph (`graphs/` fica para o F5) | DECIDIDO |
+| D045 | As ferramentas de grafo são **globais**, sem escopo: o grafo é a camada que liga | DECIDIDO |
+| D046 | Saída estruturada por `json_mode`, com o formato **no prompt, gerado do Pydantic** | DECIDIDO |
+| D047 | O peso mínimo padrão do desenho é **2**: co-ocorrência de peso 1 não é relação | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -563,20 +566,24 @@ Cada fase é utilizável sozinha. Nada de fase que só serve se a próxima exist
   conceito para existir, e conceito é do F3.
 - `engine/tools/cadernos.py`: **não existe**, e não deve existir (D039).
 
-### F3 — Grafo de conhecimento  ← PLANO ESCRITO (abaixo)
-- [ ] `knowledge.py`: a loja do grafo (normalizar, achar-ou-criar, mencionar, ligar,
+### F3 — Grafo de conhecimento  ← CONCLUÍDA (um item pendente)
+- [x] `knowledge.py`: a loja do grafo (normalizar, achar-ou-criar, mencionar, ligar,
       mesclar, vizinhança)
-- [ ] `extracao.py`: extração de conceitos via `response_format` (D021), com
-      validação do trecho (D041, D043)
-- [ ] nó canônico por chave normalizada + vocabulário existente entregue ao extrator
-      (D041)
-- [ ] arestas de co-ocorrência (de graça) e explícitas, estas exigindo trecho (D043)
-- [ ] `engine/tools/grafo.py`: as ferramentas de grafo (D027)
-- [ ] `graph.js`: force-directed em canvas + filtros (caderno, peso, recência)
-- [ ] painel do grafo global na home
-- [ ] tela do conceito: menções, trecho de origem, cadernos onde aparece
-- [ ] edição na UI: mesclar, renomear, apagar (mesma implementação das tools — D024)
-- [ ] "virar conhecimento" numa conclusão do chat (veio do F2)
+- [x] `extracao.py`: extração de conceitos (D021), com validação do trecho
+- [x] nó canônico por chave normalizada + vocabulário existente entregue ao extrator
+      (D041), **relido a cada bloco**
+- [x] arestas de co-ocorrência (de graça) e explícitas, estas exigindo trecho (D043)
+- [x] `engine/tools/grafo.py`: as ferramentas de grafo (D027, D045)
+- [x] `graph.js`: force-directed em canvas, sem biblioteca + filtros
+- [x] painel do grafo na home, com legenda que explica o desenho
+- [x] tela do conceito: menções, trecho de origem, cadernos onde aparece
+- [x] edição na UI: mesclar, renomear, apagar (mesma implementação das tools — D024)
+- [ ] "virar conhecimento" numa conclusão do chat — **pendente**: a tabela `mentions`
+      já aceita `thread_id`/`message_id`, mas o botão não foi feito. É o único item
+      que ficou de fora, e é o menos importante dos dez.
+- [x] **Critério de pronto:** 102 conceitos extraídos do caderno real, com 156
+      menções ancoradas em trecho; painel do conceito com os trechos; 0 conceito sem
+      âncora
 
 ---
 
@@ -659,6 +666,42 @@ entra: é ela que faz a diferença entre um grafo e um emaranhado de palpites.
 `graphs/` fica para o F5, que tem passe de compilação com acompanhamento na tela
 (D028). Extração é lote: fatiar → chamar → validar → gravar. Um grafo do LangGraph
 aqui seria cerimônia sem ganho.
+
+### O que só o provedor real ensinou (D046)
+
+O plano dizia "extração por `response_format` (D021)" e parava aí. Medindo contra a
+DeepSeek, as três alternativas se comportaram assim:
+
+| método | resultado |
+|---|---|
+| `json_schema` (o padrão da lib) | 400 — "This response_format type is unavailable now" |
+| `function_calling` | 400 — "Thinking mode does not support this tool_choice" |
+| `json_mode` | funciona — **mas o schema NÃO chega ao provedor** |
+
+O último detalhe é o que importa. `json_mode` manda apenas
+`response_format: json_object`: o modelo não recebe o schema, só o que o prompt
+disser. Sem descrever o formato, ele devolveu `{"conceito": ...}` no lugar de
+`{"nome": ...}` e a validação falhou — um erro que nenhum teste com fake pegaria,
+porque o fake não fala com o provedor.
+
+Solução: **o formato vai no prompt, gerado do próprio Pydantic**. Descrever à mão
+divergiria do validador em silêncio, e o sintoma seria uma extração que "não acha
+nada", sem erro nenhum na tela. Há teste que trava isso, e outro que confirma que um
+campo novo no modelo aparece no prompt sozinho.
+
+### D047 — co-ocorrência de peso 1 não é relação
+
+Medido no caderno real: das 1521 arestas, **1266 tinham peso 1** — dois conceitos
+que apareceram juntos *uma vez* num bloco de 6 mil caracteres. Com ~18 conceitos por
+bloco, isso é praticamente todo par possível. O grafo saía um novelo.
+
+Peso 1 num bloco grande é vizinhança, não relação. Então o desenho filtra em 2 por
+padrão, e as 93 afirmadas (com trecho) continuam sendo o sinal de ouro.
+
+E um defeito que os números denunciaram: o filtro de peso valia para os dois tipos de
+aresta, e como toda afirmada tem peso 1, a tela escondia as **afirmadas** e mostrava
+as fracas — exatamente ao contrário. A afirmada é afirmação do material; não se
+filtra por frequência. Há teste.
 
 ### O que o F3 não faz
 
@@ -776,14 +819,17 @@ O que "me atualize em cada decisão de arquitetura" significa na prática:
 
 ---
 
-## 12. Estado atual (2026-09-25 — F1 e F2 concluídas)
+## 12. Estado atual (2026-09-25 — F1, F2 e F3 concluídas)
 
-Funcionando, com **129 testes** e ruff limpo:
+Funcionando, com **209 testes** e ruff limpo:
 
 - cadernos, fontes (link, PDF, YouTube, texto), chat com streaming e citação,
   7 templates de output, UI em três painéis com tema Frutiger Aero
 - **chat do caderno** e **chat global** (o que enxerga todos os cadernos e liga o
   conhecimento entre eles), com as mesmas ferramentas e escopos diferentes
+- **grafo de conhecimento ancorado**: 102 conceitos e 156 menções no caderno de
+  verdade, cada menção com o trecho literal de origem; painel na home com filtros,
+  tela do conceito e edição (renomear, mesclar, apagar)
 - motor: **agente LangGraph próprio**, dentro do app. O Hermes saiu do código, da
   configuração, do banco e do unit do systemd
 - o chat responde com o modelo que **você** configura (botão "Modelo"); hoje,
@@ -793,8 +839,13 @@ Funcionando, com **129 testes** e ruff limpo:
 
 Pendências conhecidas, e nenhuma bloqueia o uso:
 
+- "virar conhecimento" numa conclusão do chat (o único item do F3 que ficou de fora)
 - `web_search` não existe (D036, adiada com critério)
 - busca global por FTS5 (para a pessoa procurar; o agente já procura)
+- **numa fonte longa e falada (transcrição de podcast), 31 de 47 trechos foram
+  descartados** — o modelo parafraseia em vez de copiar, e a conferência recusa. O
+  mecanismo funciona (é ele que impede o grafo de virar ficção), mas vale investigar
+  se o prompt do extrator pode ser mais firme sobre literalidade.
 
 Verificado, sobre o stack adotado:
 

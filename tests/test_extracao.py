@@ -92,6 +92,41 @@ def test_o_fatiamento_termina_mesmo_com_sobreposicao_grande():
 # ------------------------------------------------------- vocabulário (D041)
 
 
+def test_o_prompt_descreve_o_json_e_cita_os_campos():
+    """Trava a descoberta feita contra o provedor real.
+
+    `json_mode` exige a palavra "json" no prompt E não envia o schema — o modelo só
+    sabe o que o texto disser. Sem a descrição, ele devolveu `{"conceito": ...}` no
+    lugar de `{"nome": ...}` e a validação falhou.
+
+    Este teste existe para que tirar o FORMATO do prompt quebre aqui, e não na mão de
+    quem estiver usando o app.
+    """
+    sistema = extracao._mensagens("texto qualquer", [])[0].content
+
+    assert "json" in sistema.lower(), "json_mode é recusado sem a palavra json"
+    for campo in ("conceitos", "relacoes", "nome", "trecho", "de", "para"):
+        assert f'"{campo}"' in sistema, f"o campo {campo} não foi descrito"
+    assert extracao.METODO_ESTRUTURADO == "json_mode"
+
+
+def test_o_formato_e_gerado_do_pydantic_e_nao_escrito_a_mao():
+    """Se um campo novo entrar no modelo, ele aparece no prompt sozinho.
+
+    Descrição escrita à mão divergiria do validador em silêncio — e o sintoma seria
+    uma extração que 'não acha nada', sem erro nenhum na tela.
+    """
+    extracao.ConceitoExtraido.model_fields["campo_de_teste"] = (
+        extracao.ConceitoExtraido.model_fields["tipo"]
+    )
+    try:
+        formato = extracao._descricao_do_formato(extracao.Extracao)
+    finally:
+        del extracao.ConceitoExtraido.model_fields["campo_de_teste"]
+
+    assert '"campo_de_teste"' in formato
+
+
 def test_o_vocabulario_existente_vai_para_o_modelo():
     # Conceito vindo de OUTRA fonte e de OUTRO caderno: a extração limpa as menções
     # da fonte que vai re-extrair, então ancorar no mesmo lugar não serviria.

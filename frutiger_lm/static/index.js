@@ -34,6 +34,8 @@
       subtitle.textContent = notebooks.length
         ? notebooks.length + (notebooks.length === 1 ? " caderno" : " cadernos")
         : "Nenhum caderno ainda.";
+      preencherFiltroDeCaderno(notebooks);
+      carregarGrafo();
     } catch (err) {
       subtitle.textContent = "Erro ao carregar: " + err.message;
       C.toast(err.message, "err");
@@ -327,6 +329,255 @@
       C.toast("Conversa global reiniciada.", "ok");
       historicoCarregado = loadConversaGlobal();
     } catch (err) { C.toast(err.message, "err"); }
+  });
+
+  /* ------------------------------------------------- grafo de conhecimento (F3)
+     O desenho é do graph.js (canvas, sem biblioteca). Aqui é só ligar os filtros,
+     buscar os dados e abrir o conceito clicado.
+  */
+
+  var grafoUI = {
+    secao: document.getElementById("grafo-secao"),
+    canvas: document.getElementById("grafo-canvas"),
+    stats: document.getElementById("grafo-stats"),
+    legenda: document.getElementById("grafo-legenda"),
+    vazio: document.getElementById("grafo-vazio"),
+    busca: document.getElementById("grafo-busca"),
+    caderno: document.getElementById("grafo-caderno"),
+    semCooc: document.getElementById("grafo-sem-cooc"),
+  };
+
+  /* Peso mínimo das co-ocorrências, e o número veio do material real.
+
+     Medido no caderno do usuário: das 1521 arestas, 1266 tinham peso 1 — dois
+     conceitos que apareceram juntos UMA vez num bloco de 6 mil caracteres. Com ~18
+     conceitos por bloco, isso é praticamente todo par possível: virou novelo, e
+     novelo não informa nada.
+
+     Peso 1 num bloco grande não é relação, é coincidência de vizinhança. Então o
+     padrão filtra em 2, e as afirmadas (com trecho) continuam sendo o sinal de ouro.
+  */
+  var grafoDesenho = null;
+  var conceitoAberto = null;
+  var PESO_MINIMO_PADRAO = 2;
+
+  function legendaDoGrafo(dados) {
+    var afirmadas = (dados.edges || []).filter(function (e) { return e.kind === "explicit"; }).length;
+    var cooc = (dados.edges || []).length - afirmadas;
+    var pontes = (dados.nodes || []).filter(function (n) { return n.ponte; }).length;
+    var cores = {};
+    (dados.nodes || []).forEach(function (n) {
+      (n.notebooks || []).forEach(function (t) { cores[t] = true; });
+    });
+
+    return [
+      "<span><b>●</b> tamanho = quantas vezes o conceito aparece</span>",
+      "<span><b>—</b> linha cheia = ligação que o material afirma, com trecho (" + afirmadas + ")</span>",
+      "<span><b>···</b> pontilhada = aparecem juntos " + PESO_MINIMO_PADRAO + " vezes ou mais (" + cooc + ")</span>",
+      pontes ? "<span><b>◯</b> anel = aparece em mais de um caderno (" + pontes + ")</span>" : "",
+      "<span><b>cor</b> = caderno (" + Object.keys(cores).length + ")</span>",
+    ].join("");
+  }
+
+  function desenharGrafo(dados) {
+    var total = (dados.nodes || []).length;
+
+    grafoUI.stats.textContent =
+      total + " conceito(s) · " + (dados.edges || []).length + " ligação(ões) · " +
+      dados.mencoes + " menção(ões)" +
+      (dados.descartadas ? " · " + dados.descartadas + " trecho(s) descartado(s)" : "");
+
+    if (!total) {
+      grafoUI.canvas.hidden = true;
+      grafoUI.vazio.hidden = false;
+      grafoUI.vazio.innerHTML = dados.cadernos && dados.cadernos.length
+        ? "<div>O grafo está vazio. Abra um caderno e use <strong>Extrair conceitos</strong> — " +
+          "eu leio as fontes e registro o que elas <em>realmente</em> dizem, com o trecho de origem " +
+          "de cada coisa.</div>"
+        : "<div>Nenhum caderno ainda. Crie um, adicione fontes e extraia os conceitos.</div>";
+      grafoUI.legenda.innerHTML = "";
+      return;
+    }
+
+    grafoUI.canvas.hidden = false;
+    grafoUI.vazio.hidden = true;
+    grafoUI.legenda.innerHTML = legendaDoGrafo(dados);
+
+    if (grafoDesenho) grafoDesenho.parar();
+    grafoDesenho = window.GrafoFrutiger.desenhar(grafoUI.canvas, dados, {
+      aoClicar: function (id) { abrirConceito(id); },
+    });
+  }
+
+  async function carregarGrafo() {
+    var parametros = ["peso_minimo=" + PESO_MINIMO_PADRAO];
+    if (grafoUI.caderno.value) parametros.push("notebook_id=" + encodeURIComponent(grafoUI.caderno.value));
+    if (grafoUI.semCooc.checked) parametros.push("sem_co_ocorrencia=true");
+
+    var dados;
+    try {
+      dados = await C.api("/api/grafo" + (parametros.length ? "?" + parametros.join("&") : ""));
+    } catch (err) {
+      grafoUI.secao.hidden = false;
+      grafoUI.canvas.hidden = true;
+      grafoUI.vazio.hidden = false;
+      grafoUI.vazio.textContent = "Não consegui carregar o grafo: " + err.message;
+      return;
+    }
+
+    grafoUI.secao.hidden = false;
+    desenharGrafo(dados);
+  }
+
+  function preencherFiltroDeCaderno(cadernos) {
+    var atual = grafoUI.caderno.value;
+    grafoUI.caderno.innerHTML = '<option value="">todos os cadernos</option>' +
+      cadernos.map(function (n) {
+        return '<option value="' + C.escapeHtml(n.id) + '">' + C.escapeHtml(n.title) + "</option>";
+      }).join("");
+    grafoUI.caderno.value = atual;
+  }
+
+  /* ------------------------------------------------------------ o conceito */
+
+  function blocoDeMencoes(mencoes) {
+    if (!mencoes.length) {
+      return "<p style='color:var(--muted);font-size:13px'>Sem menção registrada.</p>";
+    }
+    return mencoes.map(function (m) {
+      var onde = m.source_id
+        ? 'fonte "' + C.escapeHtml(m.source_title || "?") + '"'
+        : m.output_id
+          ? 'output "' + C.escapeHtml(m.output_title || "?") + '"'
+          : "conversa";
+      return '<div class="mencao"><span class="de-onde">' + onde +
+        " · caderno “" + C.escapeHtml(m.notebook_title || "?") + "”</span>" +
+        C.escapeHtml(m.excerpt) + "</div>";
+    }).join("");
+  }
+
+  function blocoDeVizinhos(vizinhos) {
+    if (!vizinhos.length) {
+      return "<p style='color:var(--muted);font-size:13px'>Nada ligado a este conceito ainda. " +
+        "O material o menciona, mas não o relaciona a outro — e o grafo não inventa ligação.</p>";
+    }
+    var ordem = vizinhos.slice().sort(function (a, b) { return b.weight - a.weight; });
+    return ordem.map(function (v) {
+      var afirmada = v.kind === "explicit";
+      var prova = afirmada ? v.provenance.replace(/^[^:]*:\s*/, "") : "";
+      return '<div class="vizinho">' +
+        '<span class="etiqueta' + (afirmada ? " afirmada" : "") + '">' +
+          (afirmada ? "afirmada" : "mesmo trecho" + (v.weight > 1 ? " · " + v.weight + "x" : "")) +
+        "</span>" +
+        '<span><b style="color:' + C.escapeHtml("#cfe9f2") + '">' + C.escapeHtml(v.concept.name) + "</b>" +
+        (prova ? '<br><span class="prova">“' + C.escapeHtml(prova) + "”</span>" : "") +
+        "</span></div>";
+    }).join("");
+  }
+
+  async function abrirConceito(id) {
+    conceitoAberto = id;
+    var painel = document.getElementById("conceito");
+    painel.hidden = false;
+
+    var dados;
+    try {
+      dados = await C.api("/api/conceitos/" + id);
+    } catch (err) {
+      C.toast(err.message, "err");
+      painel.hidden = true;
+      return;
+    }
+
+    var c = dados.concept;
+    document.getElementById("conceito-nome").textContent = c.name;
+    var cadernos = [];
+    dados.mentions.forEach(function (m) { if (cadernos.indexOf(m.notebook_title) < 0) cadernos.push(m.notebook_title); });
+    document.getElementById("conceito-meta").textContent =
+      dados.mentions.length + " menção(ões) · " + dados.neighbors.length + " ligação(ões)" +
+      (cadernos.length ? " · em " + cadernos.join(", ") : "");
+
+    var corpo = document.getElementById("conceito-corpo");
+    corpo.innerHTML =
+      '<div class="conceito-secao"><h4>De onde veio</h4>' + blocoDeMencoes(dados.mentions) + "</div>" +
+      '<div class="conceito-secao"><h4>O que se liga</h4>' + blocoDeVizinhos(dados.neighbors) + "</div>";
+
+    if (grafoDesenho) grafoDesenho.selecionar(id);
+  }
+
+  function fecharConceito() {
+    document.getElementById("conceito").hidden = true;
+    conceitoAberto = null;
+  }
+
+  document.getElementById("btn-conceito-fechar").addEventListener("click", fecharConceito);
+
+  document.getElementById("btn-conceito-renomear").addEventListener("click", async function () {
+    if (!conceitoAberto) return;
+    var nome = prompt("Novo nome do conceito:\n\nSe já existir um conceito com este nome, os dois são juntados.");
+    if (!nome || !nome.trim()) return;
+    try {
+      await C.api("/api/conceitos/" + conceitoAberto + "/renomear", { method: "POST", body: { nome: nome.trim() } });
+      C.toast("Conceito renomeado.", "ok");
+      abrirConceito(conceitoAberto);
+      carregarGrafo();
+    } catch (err) { C.toast(err.message, "err"); }
+  });
+
+  document.getElementById("btn-conceito-mesclar").addEventListener("click", async function () {
+    if (!conceitoAberto) return;
+    var termo = prompt("Juntar com qual conceito? (escreva o nome)");
+    if (!termo || !termo.trim()) return;
+    try {
+      var achados = await C.api("/api/conceitos?termo=" + encodeURIComponent(termo.trim()));
+      var outros = achados.filter(function (c) { return c.id !== conceitoAberto; });
+      if (!outros.length) {
+        C.toast("Não achei nenhum conceito com esse nome.", "err");
+        return;
+      }
+      if (outros.length > 1) {
+        C.toast("Achei mais de um: " + outros.map(function (c) { return c.name; }).join(", ") + ". Seja mais específico.", "err", 9000);
+        return;
+      }
+      if (!confirm('Juntar este conceito com "' + outros[0].name + '"?\n\nAs menções e ligações passam para o outro, e o nome antigo fica como apelido. Nada se perde.')) return;
+      await C.api("/api/conceitos/mesclar", { method: "POST", body: { de: conceitoAberto, para: outros[0].id } });
+      C.toast("Conceitos juntados.", "ok");
+      abrirConceito(outros[0].id);
+      carregarGrafo();
+    } catch (err) { C.toast(err.message, "err"); }
+  });
+
+  document.getElementById("btn-conceito-apagar").addEventListener("click", async function () {
+    if (!conceitoAberto) return;
+    var nome = document.getElementById("conceito-nome").textContent;
+    if (!confirm('Apagar "' + nome + '" do grafo?\n\nAs menções e ligações dele somem. As fontes não são tocadas.')) return;
+    try {
+      await C.api("/api/conceitos/" + conceitoAberto, { method: "DELETE" });
+      C.toast("Conceito apagado.", "ok");
+      fecharConceito();
+      carregarGrafo();
+    } catch (err) { C.toast(err.message, "err"); }
+  });
+
+  grafoUI.caderno.addEventListener("change", carregarGrafo);
+  grafoUI.semCooc.addEventListener("change", carregarGrafo);
+
+  var buscaPendente = null;
+  grafoUI.busca.addEventListener("input", function () {
+    clearTimeout(buscaPendente);
+    var termo = grafoUI.busca.value.trim();
+    buscaPendente = setTimeout(async function () {
+      if (!termo) {
+        carregarGrafo();
+        return;
+      }
+      try {
+        var achados = await C.api("/api/conceitos?termo=" + encodeURIComponent(termo));
+        if (achados.length === 1) abrirConceito(achados[0].id);
+        else if (!achados.length) C.toast("Nenhum conceito com esse nome.", "err", 2500);
+        else C.toast(achados.length + " conceitos encontrados — clique num nó do grafo.", "", 2500);
+      } catch (err) { C.toast(err.message, "err"); }
+    }, 320);
   });
 
   loadStatus();

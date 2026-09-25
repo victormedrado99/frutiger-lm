@@ -80,6 +80,15 @@ def explicar(exc: Exception) -> str:
         )
     if "401" in texto or "incorrect api key" in texto or "unauthorized" in texto:
         return " — a chave foi recusada. Confira se ela está completa e ativa no provedor."
+    if "response_format" in texto or "tool_choice" in texto:
+        # Descoberto medindo contra a DeepSeek: o modo de saída estruturada depende do
+        # provedor e do modelo. O texto cru ("This response_format type is unavailable
+        # now") não diz nada a quem está usando o app.
+        return (
+            " — este provedor não aceitou a saída estruturada pedida. Modelos de "
+            "raciocínio costumam recusar ferramenta forçada; o app usa o modo "
+            "compatível (JSON), e ainda assim alguns modelos não o suportam."
+        )
     if "404" in texto:
         return " — o endereço respondeu, mas o modelo não existe nele. Confira o nome do modelo."
     if "insufficient" in texto or "quota" in texto or "balance" in texto:

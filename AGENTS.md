@@ -111,6 +111,29 @@ frutiger_lm/
   nomes de chave.
 - **Verifique o serviço de outra pessoa DEPOIS de mexer nele.** Reiniciar o app não
   deve alterar `MainPID` nem `NRestarts` de nada mais.
+- **A saída estruturada depende do provedor, e o teste com fake NÃO pega isso**
+  (D046). O default do `with_structured_output` (`json_schema`) tomou 400 na DeepSeek;
+  `function_calling` também (modelo de raciocínio recusa `tool_choice` forçado);
+  `json_mode` funciona, **mas o schema não chega** — o modelo só sabe o que o prompt
+  disser, e sem o formato descrito ele inventa os nomes dos campos. Por isso o
+  formato é gerado do Pydantic e vai no prompt. Se for trocar de provedor, meça os
+  três métodos antes de supor.
+- **Toda tabela nova precisa entrar na limpeza do `conftest`**, filhas antes das
+  mães. Sem isso o estado vaza entre testes e o sintoma é um teste vendo o dado do
+  anterior — foi assim que o grafo escapou, e antes a conversa.
+- **Nunca abra uma conexão nova dentro de um `with connect()` aberto.** Trava no
+  SQLite quando as duas escrevem. Extraia uma função que recebe a conexão (é o que
+  `knowledge._ligar` faz).
+- **`display: flex` vence o atributo `hidden`.** Um painel "escondido" que aparece é
+  isso. Precisa da regra `.seletor[hidden] { display: none; }`.
+- **O tema tinha o fundo preso ao viewport.** `background-attachment: fixed` no
+  `body` + qualquer filho com `backdrop-filter` = o Chromium deixa de pintar aquele
+  fundo no backdrop root, e a tela branca do navegador aparece. A cor-base (opaca)
+  mora no `html`, e a aurora pertence ao documento.
+- **Estático sem `cache-control` vira CSS velho depois de um `git pull`.** O
+  sintoma é o pior possível: a correção está no disco, o servidor serve a nova, e a
+  tela mostra a antiga — então o defeito parece ser do código que você acabou de
+  escrever. O app manda `no-cache` em `/static` (revalidação por etag, 304 barato).
 
 ## Validar com o modelo real
 
