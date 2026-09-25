@@ -87,7 +87,7 @@
   async function loadNotebook() {
     var nb = await C.api("/api/notebooks/" + NB_ID);
     state.notebook = nb;
-    document.title = nb.title + " · Caderno";
+    document.title = nb.title + " · Hermes LM";
     if (document.activeElement !== els.title) els.title.value = nb.title;
     renderSources(nb.sources);
     renderOutputs(nb.outputs);
@@ -226,7 +226,7 @@
     wrap.innerHTML =
       '<div class="msg-avatar">' + (role === "assistant" ? "◆" : "•") + "</div>" +
       '<div class="msg-content">' +
-        '<div class="msg-role">' + (role === "assistant" ? "Caderno" : "Você") + "</div>" +
+        '<div class="msg-role">' + (role === "assistant" ? "Hermes LM" : "Você") + "</div>" +
         '<div class="body md">' + html + "</div>" +
       "</div>";
     els.messages.appendChild(wrap);
@@ -508,7 +508,7 @@
     }
     try {
       await C.api("/api/notebooks/" + NB_ID, { method: "PATCH", body: { title: value } });
-      document.title = value + " · Caderno";
+      document.title = value + " · Hermes LM";
       C.toast("Título atualizado.", "ok");
       if (state.notebook) state.notebook.title = value;
     } catch (err) {

@@ -1,7 +1,7 @@
 [project]
 name = "caderno"
 version = "0.1.0"
-description = "Caderno — organize notebooks de estudo, adicione fontes e converse com elas. Usa o Hermes Agent como motor."
+description = "Hermes LM — organize notebooks de estudo, adicione fontes e converse com elas. Usa o Hermes Agent como motor."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

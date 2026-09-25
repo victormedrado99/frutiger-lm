@@ -1,7 +1,10 @@
-# Caderno
+# Hermes LM
 
 Notebooks de estudo com as suas fontes, conversa e outputs — usando o
 [Hermes Agent](https://github.com/NousResearch/hermes-agent) como motor.
+
+> **Projeto independente.** Usa o Hermes Agent e o modelo que você configurar,
+> sem nenhuma afiliação com o Nous Research.
 
 Se você já usou o NotebookLM do Google, a ideia é a mesma, mas sem imagens e sem
 áudio: só **organizar cadernos de estudo, juntar fontes e conversar com elas**.
