@@ -256,7 +256,6 @@
   */
 
   var dock = {
-    root: document.getElementById("dock"),
     messages: document.getElementById("dock-messages"),
     input: document.getElementById("dock-input"),
     send: document.getElementById("dock-send"),
@@ -296,7 +295,8 @@
   var historicoCarregado = null;
 
   function abrirDock() {
-    dock.root.classList.add("aberto");
+    // A conversa é a outra aba da barra lateral: pedir o chat é pedir para vê-lo.
+    mostrarPainel("chat");
     if (!historicoCarregado) historicoCarregado = loadConversaGlobal();
   }
 
@@ -337,7 +337,6 @@
   */
 
   var grafoUI = {
-    secao: document.getElementById("grafo-secao"),
     canvas: document.getElementById("grafo-canvas"),
     stats: document.getElementById("grafo-stats"),
     legenda: document.getElementById("grafo-legenda"),
@@ -365,17 +364,21 @@
     var afirmadas = (dados.edges || []).filter(function (e) { return e.kind === "explicit"; }).length;
     var cooc = (dados.edges || []).length - afirmadas;
     var pontes = (dados.nodes || []).filter(function (n) { return n.ponte; }).length;
-    var cores = {};
-    (dados.nodes || []).forEach(function (n) {
-      (n.notebooks || []).forEach(function (t) { cores[t] = true; });
-    });
 
+    // Legenda curta de propósito: cada linha dela é altura roubada do desenho, e a
+    // barra é estreita. O que não couber em duas linhas vai para o `title` da linha.
     return [
-      "<span><b>●</b> tamanho = quantas vezes o conceito aparece</span>",
-      "<span><b>—</b> linha cheia = ligação que o material afirma, com trecho (" + afirmadas + ")</span>",
-      "<span><b>···</b> pontilhada = aparecem juntos " + PESO_MINIMO_PADRAO + " vezes ou mais (" + cooc + ")</span>",
-      pontes ? "<span><b>◯</b> anel = aparece em mais de um caderno (" + pontes + ")</span>" : "",
-      "<span><b>cor</b> = caderno (" + Object.keys(cores).length + ")</span>",
+      '<span title="O tamanho do nó é quantas vezes o conceito aparece no material">' +
+        "<b>●</b> tamanho = vezes que aparece</span>",
+      '<span title="Linha cheia: o material afirma a ligação e há trecho de origem"><b>—</b> cheia = o material afirma (' +
+        afirmadas + ")</span>",
+      '<span title="Pontilhada: os dois conceitos só aparecem juntos no mesmo trecho, sem afirmação"><b>···</b> pontilhada = juntos ' +
+        PESO_MINIMO_PADRAO + "×+ (" + cooc + ")</span>",
+      pontes
+        ? '<span title="Anel: o conceito aparece em mais de um caderno — é a ponte entre áreas"><b>◯</b> anel = 2+ cadernos (' +
+          pontes + ")</span>"
+        : "",
+      '<span title="A cor do nó indica de qual caderno o conceito veio"><b>cor</b> = caderno</span>',
     ].join("");
   }
 
@@ -418,14 +421,12 @@
     try {
       dados = await C.api("/api/grafo" + (parametros.length ? "?" + parametros.join("&") : ""));
     } catch (err) {
-      grafoUI.secao.hidden = false;
       grafoUI.canvas.hidden = true;
       grafoUI.vazio.hidden = false;
       grafoUI.vazio.textContent = "Não consegui carregar o grafo: " + err.message;
       return;
     }
 
-    grafoUI.secao.hidden = false;
     desenharGrafo(dados);
   }
 
@@ -601,6 +602,52 @@
       carregarGrafo();
     } catch (err) { C.toast(err.message, "err"); }
   });
+
+  /* ------------------------------------------- abas da barra lateral (F4)
+
+     Grafo e chat dividem a barra. Dois cuidados que a troca de aba exige:
+
+     1. **Canvas escondido tem clientWidth 0.** Se a aba do grafo fosse desenhada
+        enquanto escondida, o grafo sairia com o tamanho errado e só se perceberia ao
+        abrir a aba. Por isso `reajustar()` na volta — e dentro de dois quadros de
+        animação, porque o layout só assenta depois que o `hidden` sai.
+     2. **A barra lateral mora abaixo do cabeçalho.** A altura vai para a variável
+        `--topbar`, medida em vez de fixada: o cabeçalho cresce com a fonte do
+        sistema, e um número errado deixaria a barra por baixo dele.
+  */
+  var abasLaterais = document.querySelectorAll(".lateral-abas button");
+
+  function mostrarPainel(nome) {
+    abasLaterais.forEach(function (botao) {
+      botao.classList.toggle("active", botao.dataset.painel === nome);
+    });
+    document.getElementById("painel-grafo").hidden = nome !== "grafo";
+    document.getElementById("painel-chat").hidden = nome !== "chat";
+
+    if (nome !== "grafo") return;
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        if (grafoDesenho) grafoDesenho.reajustar();
+        else carregarGrafo();
+      });
+    });
+  }
+
+  abasLaterais.forEach(function (botao) {
+    botao.addEventListener("click", function () {
+      mostrarPainel(botao.dataset.painel);
+    });
+  });
+
+  function medirTopbar() {
+    var cabecalho = document.querySelector(".topbar");
+    if (cabecalho) {
+      document.documentElement.style.setProperty("--topbar", cabecalho.offsetHeight + "px");
+    }
+  }
+
+  medirTopbar();
+  window.addEventListener("resize", medirTopbar);
 
   grafoUI.caderno.addEventListener("change", carregarGrafo);
   grafoUI.semCooc.addEventListener("change", carregarGrafo);

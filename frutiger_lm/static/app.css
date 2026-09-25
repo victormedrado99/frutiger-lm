@@ -236,6 +236,9 @@ textarea { resize: vertical; }
 /* ======================================================== página: cadernos */
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -682,51 +685,97 @@ input[type="range"]::-moz-range-thumb {
    pílula; aberta, sobe o painel com a conversa. Reusa .msg/.tool-note/.typing
    do chat do caderno — é a mesma conversa, com outro escopo. */
 
-.dock {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 40;
-  padding: 0 16px 14px;
-  pointer-events: none; /* só os elementos internos capturam clique */
+/* ============================================ home: principal + barra lateral
+
+   O grafo e o chat moram numa barra fixa à direita; os cadernos rolam à esquerda.
+   Antes o chat era uma gaveta na base e o grafo uma seção no meio da página — os
+   dois exigiam rolar até eles, e sumiam da vista assim que se mexia nos cadernos.
+   Numa barra ficam visíveis o tempo todo, que é o ponto de um grafo de
+   conhecimento: poder olhar de relance enquanto se lê outra coisa.
+*/
+
+.home { display: flex; align-items: flex-start; }
+
+.home .page {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 1180px;
+  margin: 0;
+  padding: 26px 26px 40px;
 }
 
-.dock-panel,
-.dock-bar {
-  pointer-events: auto;
-  max-width: 1000px;
-  margin: 0 auto;
-}
-
-.dock-panel {
-  max-height: 0;
-  opacity: 0;
+.lateral {
+  flex: 0 0 400px;
+  /* `min-width: 0` não é decoração: um item flex nasce com `min-width: auto`, que é o
+     min-content do conteúdo. O canvas tem largura INTRÍNSECA (o atributo `width`, que
+     `pintar` define como a largura de tela), então ele inflava a barra para ~482px —
+     e como a barra maior dava um canvas maior, que dava uma barra maior... a barra
+     crescia sozinha a cada desenho. Com `min-width: 0` ela obedece ao `flex-basis`. */
+  min-width: 0;
   overflow: hidden;
-  transition: max-height 0.28s ease, opacity 0.18s ease;
-  border: 1px solid var(--border);
-  border-bottom: none;
-  border-radius: var(--radius) var(--radius) 0 0;
+  position: sticky;
+  top: var(--topbar, 58px);
+  height: calc(100vh - var(--topbar, 58px));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--border);
   background: var(--panel);
   backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: var(--bevel), 0 -8px 26px rgba(0, 0, 0, 0.34);
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.10);
 }
 
-.dock.aberto .dock-panel {
-  max-height: min(60vh, 540px);
-  opacity: 1;
+.lateral-abas {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  background: linear-gradient(180deg, rgba(120, 220, 255, 0.10), rgba(10, 30, 45, 0.30));
 }
 
-.dock-head {
+.lateral-abas button {
+  flex: 1 1 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.lateral-abas button:hover { color: var(--text); }
+.lateral-abas button.active {
+  background: linear-gradient(180deg, rgba(140, 240, 255, 0.34), rgba(60, 190, 220, 0.20));
+  color: #04121c;
+  box-shadow: var(--bevel), 0 0 14px rgba(95, 227, 240, 0.35);
+}
+
+/* O painel escondido precisa deste `display: none` EXPLÍCITO: `.lateral-painel` é
+   `display: flex`, e uma classe vence o atributo `hidden` na especificidade. Sem
+   esta linha a aba escondida fica visível — defeito que já custou tempo neste
+   projeto (está registrado no AGENTS.md). */
+.lateral-painel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.lateral-painel[hidden] { display: none; }
+
+.lateral-painel-head {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 14px;
+  gap: 8px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--border-soft);
   background: linear-gradient(180deg, rgba(120, 220, 255, 0.12), rgba(10, 30, 45, 0.40));
 }
 
-.dock-title {
+.lateral-titulo {
   font-size: 12.5px;
   font-weight: 700;
   letter-spacing: 0.5px;
@@ -734,84 +783,81 @@ input[type="range"]::-moz-range-thumb {
   text-shadow: 0 0 12px rgba(95, 227, 240, 0.45);
 }
 
-.dock-messages {
-  height: min(54vh, 480px);
+/* --- a aba do chat --- */
+
+#painel-chat .messages {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  padding: 16px 20px 4px;
+  padding: 14px 14px 4px;
 }
 
-.dock-messages:empty::before {
+#painel-chat .messages:empty::before {
   content: "…";
   color: var(--muted);
 }
 
-.dock-bar {
+.lateral-entrada {
+  flex: 0 0 auto;
   display: flex;
   align-items: flex-end;
   gap: 8px;
   padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel);
-  backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: var(--bevel), var(--shadow);
-}
-
-.dock.aberto .dock-bar {
-  border-radius: 0 0 var(--radius) var(--radius);
   border-top: 1px solid var(--border-soft);
 }
 
-.dock-bar textarea {
-  border: none;
-  background: transparent;
-  box-shadow: none;
+.lateral-entrada textarea {
   resize: none;
-  padding: 6px 4px;
-  max-height: 120px;
+  max-height: 110px;
+  padding: 8px 10px;
+  font-size: 13.5px;
 }
 
-.dock-bar textarea:focus {
-  box-shadow: none;
-}
-
-/* a última fileira de cadernos não pode ficar escondida atrás da barra */
-.page {
-  padding-bottom: 132px;
+/* Em tela estreita a barra desce para baixo dos cadernos: 400px fixos não cabem. */
+@media (max-width: 1080px) {
+  .home { flex-direction: column; }
+  .lateral {
+    flex: 0 0 auto;
+    position: static;
+    height: auto;
+    min-height: 520px;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+  #painel-grafo .grafo-area { min-height: 420px; }
+  #painel-chat .messages { min-height: 320px; }
 }
 
 /* ---------------------------------------------------- grafo de conhecimento */
 
-.grafo {
-  margin-top: 46px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel);
-  backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: var(--bevel), var(--shadow);
-  overflow: hidden;
-}
-
+/* O grafo agora é uma ABA da barra lateral, não uma seção da página. O canvas
+   recebe toda a altura que sobra: `flex: 1` + `min-height: 0` num contêiner de
+   altura definida é o que faz o canvas ter altura de verdade (sem o `min-height: 0`
+   o filho não encolhe e o canvas estoura a coluna). */
 .grafo-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 12px 16px;
+  flex: 0 0 auto;
+  padding: 11px 12px;
   border-bottom: 1px solid var(--border-soft);
   background: linear-gradient(180deg, rgba(120, 220, 255, 0.12), rgba(10, 30, 45, 0.40));
 }
 
+.grafo-linha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.grafo-linha + .grafo-linha { margin-top: 8px; }
+
 .grafo-head h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
   letter-spacing: 0.3px;
 }
 
-.grafo-stats { font-size: 12px; color: var(--muted); }
+.grafo-stats { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
 
-.grafo-head input[type="search"] { width: 190px; padding: 6px 10px; font-size: 13px; }
-.grafo-head select { width: auto; min-width: 150px; padding: 6px 10px; font-size: 13px; }
+.grafo-head input[type="search"] { flex: 1 1 auto; min-width: 0; padding: 6px 10px; font-size: 13px; }
+.grafo-head select { flex: 0 0 auto; width: auto; max-width: 46%; padding: 6px 8px; font-size: 12.5px; }
 
 .grafo-toggle {
   display: flex;
@@ -821,27 +867,37 @@ input[type="range"]::-moz-range-thumb {
   color: var(--text-dim);
   cursor: pointer;
   user-select: none;
+  white-space: nowrap;
 }
 .grafo-toggle input { width: auto; }
 
 .grafo-legenda {
+  flex: 0 0 auto;
   display: flex;
-  gap: 18px;
+  gap: 7px 14px;
   flex-wrap: wrap;
-  padding: 9px 16px;
-  font-size: 12px;
+  padding: 8px 12px;
+  font-size: 11.5px;
+  line-height: 1.5;
   color: var(--muted);
   border-bottom: 1px solid var(--border-soft);
 }
 .grafo-legenda b { color: var(--text-dim); font-weight: 600; }
 
-.grafo-area { position: relative; }
+#painel-grafo .grafo-area {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 
 #grafo-canvas {
   display: block;
   width: 100%;
-  height: 460px;
-  background: radial-gradient(circle at 50% 42%, rgba(30, 90, 120, 0.20), rgba(4, 14, 24, 0.30) 70%);
+  max-width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at 50% 46%, rgba(30, 90, 120, 0.20), rgba(4, 14, 24, 0.30) 70%);
 }
 
 .grafo-vazio {
@@ -851,12 +907,10 @@ input[type="range"]::-moz-range-thumb {
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 30px;
+  padding: 26px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13.5px;
   line-height: 1.6;
-  max-width: 560px;
-  margin: 0 auto;
 }
 
 /* --------------------------------------------------------- painel conceito */

@@ -142,6 +142,27 @@ frutiger_lm/
 - **Pergunta de cartão tem que nomear o conceito.** "Qual é o primeiro campo?" não
   ensina nada: o primeiro campo *de quê?* Um cartão ambíguo é pior que nenhum, porque
   a pessoa marca "bom" sem ter recuperado coisa alguma.
+- **`display: flex` ganha de `[hidden]`.** Uma classe vence o atributo na
+  especificidade, então todo painel escondido com `hidden` precisa de um
+  `[hidden] { display: none }` explícito. Já custou tempo duas vezes (o painel do
+  conceito e as abas da barra lateral).
+- **Um `<canvas>` tem largura INTRÍNSECA** (o atributo `width`, que o desenho define
+  como a largura de tela). Como item flex ele nasce com `min-width: auto` = o
+  min-content, então **inflava a barra lateral** de 400 para ~482px — e como a barra
+  maior dava um canvas maior, que dava uma barra maior, ela crescia sozinha a cada
+  desenho. A cura é `min-width: 0` no item flex.
+- **A forma do grafo vinha do `clamp` do quadro**, não da física: a repulsão empurrava
+  os nós até a borda e eles ficavam ali, então o desenho era retangular. Foi trocar o
+  clamp por gravidade + repulsão que produziu o círculo. **Medido**: o raio por setor
+  angular (24 setores) caiu de 60% de variação para 6%.
+- **Contar rótulos não evita sobreposição.** Num grafo em círculo os dez conceitos
+  mais mencionados ficam todos no miolo, e um teto de dez rótulos põe exatamente esses
+  dez um em cima do outro. A decisão tem que ser por **caixa de colisão**, com folga
+  generosa (18px de altura para uma linha de 11px) — e o texto desenhado numa passada
+  final, para nenhum nó passar por cima.
+- **Clique e arraste se confundiam.** A checagem era `Math.abs(vx) < 1` no `mouseup`,
+  e nunca falhava: o arraste zera a velocidade a cada movimento, então todo arraste
+  abria o conceito. O que decide é a distância percorrida desde o `mousedown`.
 
 ## Validar com o modelo real
 

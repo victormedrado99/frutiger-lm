@@ -90,6 +90,8 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D049 | SRS é um SM-2 **simplificado**; as lacunas são **fatos do grafo**, nunca opinião de modelo | DECIDIDO |
 | D050 | Contradição é comparação sobre o **mesmo conceito**, e exige **os dois trechos** | DECIDIDO |
 | D051 | A citação `[n]` na resposta é o **registro de uso** da fonte | DECIDIDO |
+| D052 | Na home, grafo e chat moram numa **barra lateral à direita**, em abas | DECIDIDO |
+| D053 | O grafo se forma por **gravidade + repulsão**; a vista é que **encaixa** no quadro | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -844,6 +846,30 @@ numeração determinística das fontes (feita no F1 justamente para casar). A re
 vira registro em `source_usage`, e "órfã" passa a significar "nunca citada numa
 resposta" — conferível, em vez de suposto.
 
+**D052 — a barra lateral.**
+Grafo e chat saíram do meio da página e da gaveta de baixo para uma **barra fixa à
+direita**, com abas (o mesmo padrão do painel do caderno, D048). O motivo é o de
+sempre: os dois exigiam rolar até eles e sumiam da vista assim que se mexia nos
+cadernos. Um grafo de conhecimento serve para ser olhado **de relance enquanto se lê
+outra coisa** — no meio da página ele não fazia isso.
+
+**D053 — o desenho do grafo tem física, e a vista tem outra função.**
+Antes, quem dava forma ao desenho era o `clamp` do retângulo do quadro: a repulsão
+empurrava os nós para fora, eles batiam na borda e ficavam ali. O formato final era o
+**do quadro**, não o da física — e num quadro estreito isso fica evidente.
+
+Agora o desenho sai do **equilíbrio** entre a gravidade ao centro (linear na distância,
+para a borda não ficar frouxa) e a repulsão entre todos os pares (com piso de distância,
+senão dois nós vizinhos explodem). Num disco de N nós o raio de equilíbrio cresce com a
+raiz cúbica de N: o desenho fica redondo sozinho e cresce para acomodar mais conceitos.
+Não existe mais limite de raio — a física já se limita.
+
+E **a vista encaixa**: a física decide o tamanho relativo, a vista decide quanto cabe na
+tela. Sem essa separação o tamanho da barra decidia o desenho (num quadro baixo o grafo
+transbordava). A escala é aplicada à mão, e não com `ctx.scale`, porque **o texto do
+rótulo não pode encolher junto** — a escala fica em ~0,8 aqui, e um rótulo de 11px
+viraria 9px se fosse escalado.
+
 ### O que o F4 não faz
 
 - **geração de mídia**: nem áudio, nem imagem, nem vídeo. Nunca esteve no escopo.
@@ -959,6 +985,11 @@ Funcionando, com **266 testes** e ruff limpo:
 
 - cadernos, fontes (link, PDF, YouTube, texto), chat com streaming e citação,
   7 templates de output, UI em três painéis com tema Frutiger Aero
+- **home com barra lateral**: o grafo e o chat moram numa barra fixa à direita, em
+  abas — visíveis o tempo todo, sem rolar até eles (D052)
+- **o grafo tem física**: gravidade ao centro e repulsão entre os nós formam um
+  círculo, e a vista encaixa o desenho no quadro (D053). Medido: 6% de variação de
+  raio entre 24 setores
 - **chat do caderno** e **chat global**, com as mesmas ferramentas e escopos diferentes
 - **grafo de conhecimento ancorado**: 102 conceitos e 156 menções no caderno de
   verdade, cada menção com o trecho literal de origem; painel na home com filtros,

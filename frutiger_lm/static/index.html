@@ -17,30 +17,62 @@
     <button class="btn btn-primary" id="btn-new">Novo caderno</button>
   </header>
 
-  <main class="page">
-    <h1>Seus cadernos</h1>
-    <div class="sub" id="subtitle">Carregando…</div>
-    <div class="grid" id="grid"></div>
+  <div class="home">
+    <main class="page">
+      <h1>Seus cadernos</h1>
+      <div class="sub" id="subtitle">Carregando…</div>
+      <div class="grid" id="grid"></div>
+    </main>
 
-    <!-- grafo de conhecimento (F3) -->
-    <section class="grafo" id="grafo-secao" hidden>
-      <div class="grafo-head">
-        <h2>Grafo de conhecimento</h2>
-        <span class="grafo-stats" id="grafo-stats"></span>
-        <div class="spacer"></div>
-        <input type="search" id="grafo-busca" placeholder="buscar conceito…" autocomplete="off">
-        <select id="grafo-caderno"></select>
-        <label class="grafo-toggle" title="Mostra só as ligações que o material afirma. As pontilhadas são apenas conceitos que aparecem no mesmo trecho.">
-          <input type="checkbox" id="grafo-sem-cooc"> só afirmadas
-        </label>
+    <!-- barra lateral: o grafo e o chat, sempre ao lado dos cadernos.
+         As abas estão aqui pelas mesmas razões do painel do caderno (D048): grafo e
+         conversa precisam de ALTURA, e empilhados num espaço estreito os dois ficam
+         apertados. Cada um ocupa a barra inteira quando é a aba da vez. -->
+    <aside class="lateral" id="lateral">
+      <div class="lateral-abas" id="lateral-abas">
+        <button data-painel="grafo" class="active">Grafo</button>
+        <button data-painel="chat">Chat</button>
       </div>
-      <div class="grafo-legenda" id="grafo-legenda"></div>
-      <div class="grafo-area">
-        <canvas id="grafo-canvas"></canvas>
-        <div class="grafo-vazio" id="grafo-vazio" hidden></div>
+
+      <!-- grafo de conhecimento (F3) -->
+      <div class="lateral-painel" id="painel-grafo" aria-label="Grafo de conhecimento">
+        <!-- Sem título aqui: a aba "Grafo" já o nomeia, e este painel é uma coluna
+             estreita — cada linha do cabeçalho é altura roubada do desenho. -->
+        <div class="grafo-head">
+          <div class="grafo-linha">
+            <input type="search" id="grafo-busca" placeholder="buscar conceito…" autocomplete="off">
+            <select id="grafo-caderno"></select>
+          </div>
+          <div class="grafo-linha">
+            <span class="grafo-stats" id="grafo-stats"></span>
+            <div class="spacer"></div>
+            <label class="grafo-toggle" title="Mostra só as ligações que o material afirma. As pontilhadas são apenas conceitos que aparecem no mesmo trecho.">
+              <input type="checkbox" id="grafo-sem-cooc"> só as afirmadas
+            </label>
+          </div>
+        </div>
+        <div class="grafo-legenda" id="grafo-legenda"></div>
+        <div class="grafo-area">
+          <canvas id="grafo-canvas"></canvas>
+          <div class="grafo-vazio" id="grafo-vazio" hidden></div>
+        </div>
       </div>
-    </section>
-  </main>
+
+      <!-- chat global: conversa com todos os cadernos (F2) -->
+      <div class="lateral-painel" id="painel-chat" hidden>
+        <div class="lateral-painel-head">
+          <span class="lateral-titulo">◆ Todos os seus cadernos</span>
+          <div class="spacer"></div>
+          <button class="btn btn-sm" id="btn-dock-reset" title="Começa a conversa global do zero">Nova conversa</button>
+        </div>
+        <div class="messages" id="dock-messages"></div>
+        <div class="lateral-entrada">
+          <textarea id="dock-input" rows="1" placeholder="Pergunte a todos os seus cadernos…" spellcheck="false"></textarea>
+          <button class="btn btn-primary" id="dock-send">Enviar</button>
+        </div>
+      </div>
+    </aside>
+  </div>
 
   <!-- conceito: menções, trecho de origem e edição -->
   <aside class="conceito" id="conceito" hidden>
@@ -130,22 +162,6 @@
         <button class="btn" data-close="modal-model">Cancelar</button>
         <button class="btn btn-primary" id="btn-save-model">Salvar</button>
       </div>
-    </div>
-  </div>
-
-  <!-- chat global: a barra de baixo conversa com todos os cadernos (F2) -->
-  <div class="dock" id="dock">
-    <div class="dock-panel" id="dock-panel">
-      <div class="dock-head">
-        <span class="dock-title">◆ Todos os seus cadernos</span>
-        <div class="spacer"></div>
-        <button class="btn btn-sm" id="btn-dock-reset" title="Começa a conversa global do zero">Nova conversa</button>
-      </div>
-      <div class="messages dock-messages" id="dock-messages"></div>
-    </div>
-    <div class="dock-bar">
-      <textarea id="dock-input" rows="1" placeholder="Pergunte a todos os seus cadernos…" spellcheck="false"></textarea>
-      <button class="btn btn-primary" id="dock-send">Enviar</button>
     </div>
   </div>
 
