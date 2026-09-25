@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db, ingest, knowledge, model_store, prompts, study
 from .config import settings
-from .engine import agent, checkpoint, estudo, extracao, llm
+from .engine import agent, artefato, checkpoint, estudo, extracao, llm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("frutiger")
@@ -806,3 +806,117 @@ async def delete_output(output_id: str) -> dict[str, Any]:
         raise HTTPException(404, "Output não encontrado")
     db.delete_output(output_id)
     return {"deleted": output_id}
+
+
+# --------------------------------------------------------------------------- #
+# O documento compilado (F5)
+# --------------------------------------------------------------------------- #
+# O mesmo passe serve ao botão, ao download e à impressão. A narração é UMA chamada de
+# modelo; todo o resto do documento é consulta ao grafo e ao banco — e é a maior parte
+# dele (na prática: 36 das 38 seções do caderno de verdade).
+
+
+@app.post("/api/notebooks/{notebook_id}/compilar")
+async def compilar_documento(notebook_id: str, sem_modelo: bool = False) -> StreamingResponse:
+    """Compila o documento do caderno, avisando cada passo pela tela.
+
+    `sem_modelo=true` monta só as seções de fato — conceitos, lacunas, fontes e
+    citações — e não gasta chamada nenhuma. Serve para ver a estrutura antes de pagar
+    por ela.
+
+    O progresso vem por fila, e não por `yield` direto: a compilação é uma corrotina
+    que precisa mandar mensagem no meio, e quem está dentro dela não pode dar `yield`
+    por quem está fora. A tarefa empurra, o gerador entrega.
+    """
+    _notebook_or_404(notebook_id)
+
+    async def stream() -> AsyncIterator[str]:
+        fila: asyncio.Queue[str | None] = asyncio.Queue()
+
+        async def emitir(passo: str, mensagem: str) -> None:
+            await fila.put(_sse("compilando.passo", {"passo": passo, "mensagem": mensagem}))
+
+        async def trabalhar() -> None:
+            try:
+                documento = await artefato.compilar(
+                    notebook_id, emitir=emitir, com_narrativa=not sem_modelo
+                )
+            except llm.ModeloNaoConfigurado as exc:
+                await fila.put(_sse("error", {"message": str(exc)}))
+                await fila.put(_sse("done", {}))
+                await fila.put(None)
+                return
+            except Exception as exc:
+                log.exception("falha ao compilar o documento")
+                await fila.put(
+                    _sse("error", {"message": f"{type(exc).__name__}: {str(exc)[:300]}{llm.explicar(exc)}"})
+                )
+                await fila.put(_sse("done", {}))
+                await fila.put(None)
+                return
+
+            saida = db.create_output(
+                notebook_id,
+                template="compilado",
+                title=f"Documento compilado — {documento.titulo}",
+                content_md=documento.markdown(),
+            )
+            await fila.put(
+                _sse(
+                    "output.completed",
+                    {
+                        "id": saida["id"],
+                        "title": saida["title"],
+                        "template": "compilado",
+                        "content_md": saida["content_md"],
+                        "secoes": len(documento.secoes),
+                        "contagem": documento.contagem(),
+                    },
+                )
+            )
+            await fila.put(_sse("done", {}))
+            await fila.put(None)
+
+        tarefa = asyncio.create_task(trabalhar())
+        while True:
+            item = await fila.get()
+            if item is None:
+                break
+            yield item
+        await tarefa
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+@app.get("/api/notebooks/{notebook_id}/exportar/{formato}")
+async def exportar(notebook_id: str, formato: str) -> FileResponse:
+    """Os formatos extras do F5, do mesmo pipeline: `anki` e `obsidian`."""
+    notebook = _notebook_or_404(notebook_id)
+    geradores = {
+        "anki": (artefato.anki, "txt", "text/tab-separated-values"),
+        "obsidian": (artefato.obsidian, "md", "text/markdown"),
+    }
+    if formato not in geradores:
+        raise HTTPException(404, f"Formato desconhecido: {formato!r}")
+    gerar, extensao, media = geradores[formato]
+    conteudo = gerar(notebook_id)
+    if not conteudo.strip():
+        raise HTTPException(400, "Não há o que exportar neste formato ainda.")
+
+    simples = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in notebook["title"])[:60]
+    destino = settings.notebook_dir(notebook_id) / "exports" / f"{simples or notebook_id}.{extensao}"
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text(conteudo, encoding="utf-8")
+    return FileResponse(destino, media_type=media, filename=destino.name)
+
+
+@app.get("/imprimir/{output_id}", include_in_schema=False)
+async def imprimir(output_id: str) -> FileResponse:
+    """A versão para imprimir/salvar em PDF (D014).
+
+    Serve uma página PRÓPRIA, e não o app: o tema Aero é escuro e cheio de painel, e
+    imprimir aquilo gasta tinta e sai ilegível. O CSS claro está embutido na página.
+    """
+    if db.get_output(output_id) is None:
+        raise HTTPException(404, "Output não encontrado")
+    return FileResponse(STATIC_DIR / "imprimir.html", media_type="text/html")

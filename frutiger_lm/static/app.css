@@ -515,6 +515,14 @@ textarea { resize: vertical; }
 
 /* ------------------------------------------------------------ outputs */
 
+/* Dois botões lado a lado (os formatos de exportação), quebrando em painel estreito. */
+.linha-botoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.linha-botoes > .btn { flex: 1 1 150px; }
+
 .tpl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 6px; }
 .tpl {
   background: linear-gradient(180deg, rgba(160, 240, 255, 0.11), rgba(160, 240, 255, 0.025));

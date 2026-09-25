@@ -69,6 +69,20 @@
       </div>
 
       <div class="pane-body scroll" id="aba-gerar">
+        <!-- O documento compilado vem primeiro: é o que este app tem de diferente. Os
+             modelos de texto abaixo são o que o modelo escreve SOZINHO; aqui ele
+             escreve sobre o grafo, e a maior parte do documento é consulta. -->
+        <div class="section-label">Documento compilado</div>
+        <button class="btn" id="btn-compilar" style="width:100%">Compilar o documento do caderno</button>
+        <div class="extrair-progresso" id="compilar-progresso" hidden></div>
+
+        <div class="section-label">Levar para fora</div>
+        <div class="linha-botoes">
+          <button class="btn" id="btn-anki" title="Os cartões de estudo no formato que o Anki importa">Cartões para o Anki</button>
+          <button class="btn" id="btn-obsidian" title="Os conceitos ligados pelo que o material afirma, em [[wikilinks]]">Notas para o Obsidian</button>
+        </div>
+
+        <div class="section-label">Modelos de texto</div>
         <div class="tpl-grid" id="templates"></div>
         <div class="section-label">Salvos</div>
         <div id="outputs"></div>
@@ -154,6 +168,9 @@
         <div class="spacer"></div>
         <button class="btn btn-sm" id="btn-copy-out">Copiar</button>
         <a class="btn btn-sm" id="btn-dl-out" href="#" download>Baixar .md</a>
+        <!-- O PDF é do navegador (D014): esta aba abre a folha clara e chama a
+             impressão. Vale para TODO output — os de modelo e o compilado. -->
+        <a class="btn btn-sm" id="btn-pdf-out" href="#" target="_blank" rel="noopener">Salvar em PDF</a>
         <button class="btn btn-ghost btn-sm" data-close="modal-output">✕</button>
       </div>
       <div class="modal-body md" id="out-body"></div>

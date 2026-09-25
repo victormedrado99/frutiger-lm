@@ -1078,6 +1078,69 @@ substituídas por uma regra só, no topo do CSS:
 
 ---
 
+## 7.3 Plano do F5 — o documento compilado
+
+### O que a fase entrega
+
+Um documento que **não é um ensaio do modelo sobre o material**: é o material COMPILADO.
+A diferença inteira está em de onde vem cada parte.
+
+| Parte | De onde vem | Chama modelo? |
+|---|---|---|
+| Capa | metadados do caderno (título, data, contagens) | não |
+| Sumário | dos títulos das próprias seções | não |
+| Resumo | modelo, ancorado nas fontes, citando `[n]` | **SIM** |
+| Conceitos do material | **o grafo**: cada conceito com o trecho literal de origem | não |
+| Desenvolvimento | modelo, escrito **a partir dos conceitos do grafo** | **SIM** (mesma chamada) |
+| Lacunas abertas | `knowledge.lacunas()` — citado e nunca explicado | não |
+| Fontes | banco + registro de uso (D051): o que cada uma rendeu, e a órfã | não |
+| Apêndice de citações | a tabela `mentions` impressa: fonte, trecho e ordem | não |
+
+**A regra do F3 outra vez, agora no papel: o que está no documento é conferível.** Os
+conceitos listados existem no grafo, cada um com o trecho que o sustenta; as lacunas são
+uma consulta, não uma opinião; o apêndice é a tabela de menções. O modelo escreve a
+**ligação** entre as coisas — nunca os fatos. Toda seção que ele não escreve é uma seção
+que ninguém pode inventar.
+
+Por que **uma** chamada de modelo, e não uma por seção: as partes de fato e de estrutura
+somam sozinhas a maior parte do documento, e o texto corrido precisa ser um só — resumo e
+desenvolvimento escritos em chamadas separadas saem com vozes diferentes e se repetem.
+
+### O que a fase NÃO é
+
+- **Não é um PDF montado no servidor.** A D014 decidiu: **CSS de impressão +
+  `window.print()`**. Zero dependência, tipografia de verdade, paginação pelo navegador
+  (quebra de página e cabeçalho são CSS). Um PDF nativo pediria biblioteca de renderização
+  — e as boas pedem `cairo`/`pango` no sistema, o que quebraria o "clone e roda".
+- **Não é o subgrafo do D028.** Este plano entrega o **botão** (a UI) com o passe de
+  compilação acompanhado na tela. O D028 vale para a **ferramenta do agente**, que tem que
+  disparar o subgrafo em vez de aninhar a chamada — e essa é a etapa seguinte, com o
+  `engine/tools/artefatos.py`. O que fica pronto agora é a implementação única que os dois
+  pontos de entrada vão compartilhar (D024).
+
+### As peças, na ordem
+
+1. `engine/artefato.py` — o passe de compilação. Monta o documento como uma lista de
+   seções (`{nivel, titulo, corpo, origem}`), e não como um texto solto: é o que permite
+   ao sumário sair dos títulos reais e ao apêndice ser gerado por último.
+2. Testes com **backend falso** (a regra do projeto): o documento tem o caderno de
+   verdade, e cada seção de fato é conferida contra o grafo.
+3. Rotas: compilar (SSE, com o passo atual), ler, baixar `.md`, e a **versão imprimível**.
+4. O CSS de impressão **claro** — o tema Aero escuro gasta tinta e sai ilegível no papel.
+5. Formatos extras, do mesmo pipeline: **Anki** (os cartões do F4 em TSV) e **Obsidian**
+   (os conceitos com `[[wikilinks]]`).
+
+### Critério de pronto
+
+- [ ] O documento compilado abre no navegador e imprime em PDF sem cortar seção
+- [ ] Cada conceito listado traz o **trecho literal** que o sustenta, com a fonte
+- [ ] As lacunas do documento são **as mesmas** de `knowledge.lacunas()` (nenhuma palavra
+      do modelo ali)
+- [ ] O apêndice tem **todas** as menções, e a contagem bate com o banco
+- [ ] Imprimir em preto no branco não tem fundo escuro nem texto claro
+- [ ] Saída Anki importa com pergunta e resposta; Obsidian gera os `[[links]]`
+- [ ] `ruff` limpo e os testes passando, com backend falso (sem rede, sem chave)
+
 ## 8. Fora de escopo (por decisão, não por esquecimento)
 
 - Imagem, áudio, vídeo generativo

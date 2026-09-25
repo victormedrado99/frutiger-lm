@@ -1,0 +1,135 @@
+/* imprimir.css — a folha. Tema CLARO, e não o escuro do app.
+
+   O Frutiger Aero é escuro de propósito: vidro sobre aurora. No papel isso é o
+   contrário do que se quer — fundo escuro gasta tinta, texto claro sobre fundo claro
+   sai ilegível, e o navegador ainda costuma omitir os fundos, deixando texto branco em
+   papel branco. Aqui é tinta sobre papel, e o resto do app não é afetado. */
+
+:root {
+  --tinta: #141a1f;
+  --tinta-fraca: #586473;
+  --linha: #d9e0e8;
+  --realce: #0d6f92;
+  --papel: #ffffff;
+  --mesa: #eaeef3;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--mesa);
+  color: var(--tinta);
+  font: 16px/1.68 "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+/* A barra de ação não existe no papel. */
+.barra {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 22px;
+  background: var(--papel);
+  border-bottom: 1px solid var(--linha);
+}
+.barra .titulo { font-weight: 600; font-size: 14px; }
+.barra .acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.botao {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--linha);
+  background: #f4f7fa;
+  color: var(--tinta);
+  cursor: pointer;
+}
+.botao:hover { background: #e7eef5; }
+.botao.principal {
+  background: var(--realce);
+  border-color: var(--realce);
+  color: #fff;
+  font-weight: 600;
+}
+.botao.principal:hover { background: #0b5f7e; }
+
+.folha {
+  max-width: 840px;
+  margin: 24px auto 80px;
+  padding: 52px 60px 64px;
+  background: var(--papel);
+  box-shadow: 0 10px 34px rgba(20, 26, 31, 0.13);
+}
+
+#documento h1 { font-size: 31px; line-height: 1.2; margin: 0 0 6px; }
+#documento h2 {
+  font-size: 21px;
+  margin: 34px 0 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--linha);
+}
+#documento h3 { font-size: 16.5px; margin: 26px 0 8px; color: var(--realce); }
+#documento p { margin: 0 0 13px; }
+#documento ul, #documento ol { margin: 0 0 13px; padding-left: 22px; }
+#documento li { margin-bottom: 5px; }
+#documento em { color: var(--tinta-fraca); font-style: normal; font-size: 13.5px; }
+#documento blockquote {
+  margin: 0 0 12px;
+  padding: 10px 16px;
+  border-left: 3px solid var(--realce);
+  background: #f5f8fb;
+  color: #2b3540;
+  font-size: 14.5px;
+}
+#documento blockquote p { margin: 0; }
+#documento table { width: 100%; border-collapse: collapse; margin: 0 0 16px; font-size: 14px; }
+#documento th, #documento td { border: 1px solid var(--linha); padding: 7px 10px; text-align: left; }
+#documento th { background: #f2f6fa; }
+#documento hr { border: 0; border-top: 1px solid var(--linha); margin: 28px 0; }
+#documento code {
+  background: #f0f4f8;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 13.5px;
+}
+#documento a { color: var(--realce); }
+
+.recado { max-width: 840px; margin: 40px auto; color: var(--tinta-fraca); text-align: center; }
+
+/* --------------------------------------------------------------------- papel
+   O que muda no papel: some a casca, some a sombra, e o conteúdo passa a quebrar
+   em lugares que não cortam ideia pela metade. */
+@media print {
+  @page { margin: 18mm 16mm; }
+
+  body { background: #fff; font-size: 11.5pt; }
+  .barra { display: none; }
+  .folha {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+  .recado { display: none; }
+
+  #documento h1 { font-size: 22pt; }
+  #documento h2 { font-size: 15pt; margin-top: 22pt; }
+  #documento h3 { font-size: 12pt; }
+
+  /* Um título nunca fica órfão no fim da página; um trecho citado nunca é cortado. */
+  #documento h1, #documento h2, #documento h3 { break-after: avoid; page-break-after: avoid; }
+  #documento blockquote, #documento table, #documento li { break-inside: avoid; page-break-inside: avoid; }
+  #documento blockquote { background: none; }
+  #documento table th { background: none; }
+  #documento a { color: inherit; text-decoration: none; }
+
+  /* O apêndice é para conferir: começa em página nova, e o trecho citado fica junto do
+     nome do conceito. */
+  #documento h2:last-of-type { break-before: page; page-break-before: always; }
+}

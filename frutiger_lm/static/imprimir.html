@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Documento — Frutiger LM</title>
+<link rel="stylesheet" href="/static/imprimir.css">
+</head>
+<body>
+
+<!-- A barra existe na tela e some no papel (ver @media print). -->
+<div class="barra">
+  <span class="titulo" id="rotulo">Carregando…</span>
+  <div class="acoes">
+    <button class="botao" id="btn-voltar" type="button">← Voltar ao caderno</button>
+    <button class="botao principal" id="btn-pdf" type="button">Salvar em PDF</button>
+  </div>
+</div>
+
+<div class="recado" id="recado">Carregando o documento…</div>
+<article class="folha" id="documento" hidden></article>
+
+<script src="/static/md.js"></script>
+<script>
+/* A página de impressão é de propósito a mais burra possível: ela busca o Markdown que
+   já está gravado e o desenha. Nada é remontado aqui — o documento que se imprime é
+   exatamente o documento que ficou salvo. */
+(function () {
+  "use strict";
+
+  var id = location.pathname.split("/").pop();
+  var rotulo = document.getElementById("rotulo");
+  var recado = document.getElementById("recado");
+  var alvo = document.getElementById("documento");
+
+  function falhar(msg) {
+    recado.textContent = msg;
+    recado.hidden = false;
+    alvo.hidden = true;
+  }
+
+  fetch("/api/outputs/" + encodeURIComponent(id))
+    .then(function (r) {
+      if (!r.ok) throw new Error("documento não encontrado");
+      return r.json();
+    })
+    .then(function (saida) {
+      document.title = saida.title + " — Frutiger LM";
+      rotulo.textContent = saida.title;
+      alvo.innerHTML = window.renderMarkdown(saida.content_md || "");
+      alvo.hidden = false;
+      recado.hidden = true;
+      // O caderno de origem vem junto para o botão de voltar não ser um chute.
+      document.getElementById("btn-voltar").addEventListener("click", function () {
+        location.href = "/n/" + saida.notebook_id;
+      });
+    })
+    .catch(function (err) {
+      falhar("Não consegui carregar o documento: " + err.message);
+    });
+
+  document.getElementById("btn-pdf").addEventListener("click", function () {
+    // D014: o PDF é do navegador. Ele pagina, cabeceia e escolhe o papel — e o CSS
+    // acima decide o que sai. Nada de biblioteca de renderização no servidor.
+    window.print();
+  });
+})();
+</script>
+</body>
+</html>

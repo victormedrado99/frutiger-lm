@@ -241,11 +241,24 @@ def registrar_mencao(
     return True
 
 
-def mencoes(concept_id: str, limite: int = 200) -> list[dict[str, Any]]:
-    """As menções com a origem legível: de qual fonte (ou conversa) cada uma veio."""
+def mencoes(
+    concept_id: str, limite: int = 200, *, notebook_id: str | None = None
+) -> list[dict[str, Any]]:
+    """As menções com a origem legível: de qual fonte (ou conversa) cada uma veio.
+
+    Com `notebook_id`, só as menções daquele caderno. É o que o documento compilado
+    precisa: um conceito pode aparecer em dois cadernos (é a ponte, e é bom que
+    apareça), mas o documento de um caderno **não pode citar trecho de outro** — seria
+    afirmar, com lastro de verdade, no lugar errado.
+    """
+    filtro = "AND m.notebook_id = ?" if notebook_id else ""
+    parametros: list[Any] = [concept_id]
+    if notebook_id:
+        parametros.append(notebook_id)
+    parametros.append(limite)
     with connect() as conn:
         linhas = conn.execute(
-            """SELECT m.*,
+            f"""SELECT m.*,
                       s.title AS source_title, s.kind AS source_kind, s.origin AS source_origin,
                       o.title AS output_title, o.template AS output_template,
                       n.title AS notebook_title
@@ -253,10 +266,10 @@ def mencoes(concept_id: str, limite: int = 200) -> list[dict[str, Any]]:
                LEFT JOIN sources   s ON s.id = m.source_id
                LEFT JOIN outputs   o ON o.id = m.output_id
                JOIN      notebooks n ON n.id = m.notebook_id
-               WHERE m.concept_id = ?
+               WHERE m.concept_id = ? {filtro}
                ORDER BY m.created_at ASC
                LIMIT ?""",
-            (concept_id, limite),
+            tuple(parametros),
         ).fetchall()
     return [dict(linha) for linha in linhas]
 
@@ -697,6 +710,34 @@ def lacunas(notebook_id: str, *, limite: int = 60) -> dict[str, list[dict[str, A
         "em_outro_caderno": _em_outro_caderno(notebook_id, limite),
         "fontes_sem_contribuicao": fontes_que_nao_contribuiram(notebook_id),
     }
+
+
+def mencoes_do_caderno(notebook_id: str, *, limite: int = 5000) -> list[dict[str, Any]]:
+    """Todas as menções do caderno, com o conceito e a fonte de cada uma.
+
+    É a matéria-prima do apêndice do documento compilado (F5): cada afirmação do
+    documento tem um trecho por trás, e este apêndice é a lista desses trechos. Por
+    isso a ordem é estável (fonte, depois conceito, depois inserção) — o apêndice é
+    para ser conferido, não lido de ponta a ponta.
+
+    Fica aqui, e não em quem monta o documento, porque a leitura do grafo mora toda
+    neste módulo (D024): a rota, a ferramenta do agente e o passe de compilação usam a
+    MESMA consulta.
+    """
+    with connect() as conn:
+        linhas = conn.execute(
+            """SELECT m.id, m.excerpt, m.created_at, m.source_id,
+                      c.id AS concept_id, c.name AS conceito,
+                      s.title AS fonte, s.kind AS fonte_tipo
+               FROM mentions m
+               JOIN concepts c ON c.id = m.concept_id
+               LEFT JOIN sources s ON s.id = m.source_id
+               WHERE m.notebook_id = ?
+               ORDER BY s.title, c.name, m.created_at
+               LIMIT ?""",
+            (notebook_id, limite),
+        ).fetchall()
+    return [dict(linha) for linha in linhas]
 
 
 def _nao_desenvolvidos(notebook_id: str, limite: int) -> list[dict[str, Any]]:

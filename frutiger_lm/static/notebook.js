@@ -365,6 +365,10 @@
       els.outTitle.textContent = title || "Output";
       els.outBody.innerHTML = window.renderMarkdown(contentMd);
       els.dlOut.href = "/api/outputs/" + id + "/download";
+      // A folha de impressão abre em aba nova e traz o botão que chama a impressão do
+      // navegador. Ela busca o documento salvo por id: o que se imprime é o mesmo que
+      // ficou gravado, e não uma remontagem.
+      document.getElementById("btn-pdf-out").href = "/imprimir/" + id;
       C.openModal("modal-output");
       document.querySelector("#modal-output .modal-body").scrollTop = 0;
     } catch (err) {
@@ -379,6 +383,63 @@
       var btn = this;
       setTimeout(function () { btn.textContent = "Copiar"; }, 1600);
     } catch (e) { C.toast("Não consegui copiar.", "err"); }
+  });
+
+  /* ------------------------------------------- o documento compilado (F5)
+
+     O progresso importa mais aqui do que nos outros botões: a compilação tem uma
+     chamada de modelo no meio, e sem retorno na tela o botão parece morto por meio
+     minuto. Cada passo que o motor manda aparece na hora. */
+
+  document.getElementById("btn-compilar").addEventListener("click", async function () {
+    var botao = this;
+    var caixa = document.getElementById("compilar-progresso");
+    botao.disabled = true;
+    caixa.hidden = false;
+    caixa.textContent = "Começando…";
+    var passos = [];
+
+    function pintar(extra) {
+      caixa.innerHTML = passos.map(C.escapeHtml).join("<br>") + (extra ? "<br>" + extra : "");
+    }
+
+    try {
+      var resp = await C.postStream("/api/notebooks/" + NB_ID + "/compilar", {});
+      await C.readSSE(resp, function (nome, dados) {
+        if (nome === "compilando.passo") {
+          passos.push("· " + dados.mensagem);
+          pintar("");
+        } else if (nome === "output.completed") {
+          var c = dados.contagem || {};
+          pintar(
+            "<b>Pronto:</b> " + dados.secoes + " seções — " +
+            (c.grafo || 0) + " do grafo, " + (c.banco || 0) + " do banco e " +
+            (c.modelo || 0) + " do modelo.<br>" +
+            '<a href="#" id="abrir-compilado">Abrir o documento</a>'
+          );
+          document.getElementById("abrir-compilado").addEventListener("click", function (ev) {
+            ev.preventDefault();
+            showOutput(dados.id, dados.title, dados.content_md);
+          });
+          loadOutputs();
+        } else if (nome === "error") {
+          pintar('<span style="color:var(--danger)">' + C.escapeHtml(dados.message) + "</span>");
+        }
+      });
+    } catch (err) {
+      pintar('<span style="color:var(--danger)">' + C.escapeHtml(err.message) + "</span>");
+    } finally {
+      botao.disabled = false;
+    }
+  });
+
+  /* Os formatos extras: o download é a própria rota, não precisa de estado aqui. */
+  [["btn-anki", "anki"], ["btn-obsidian", "obsidian"]].forEach(function (par) {
+    var el = document.getElementById(par[0]);
+    if (!el) return;
+    el.addEventListener("click", function () {
+      window.open("/api/notebooks/" + NB_ID + "/exportar/" + par[1], "_blank");
+    });
   });
 
   /* ------------------------------------------------------ modais/tabs */
