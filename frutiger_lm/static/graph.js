@@ -155,6 +155,9 @@
 
     var selecionado = null;
     var destacado = null;
+    /* A caixa de cada rótulo aceito, por id de nó. Fica fora do `pintar` porque o
+       clique também precisa dela: o rótulo é área de acerto (ver `noPonto`). */
+    var caixasDeRotulo = {};
     var arrastando = null;
     var inicioDoArraste = null;
     var arrastou = false;
@@ -362,6 +365,10 @@
       var caixas = [];
       var rotulos = {};
       var pendentes = [];
+      // As caixas de acerto são recalculadas a cada pintura: o conjunto de rótulos
+      // aceitos muda com o foco, e um clique não pode acertar um rótulo que já não
+      // está no desenho.
+      caixasDeRotulo = {};
 
       function posicionarRotulo(no) {
         // O rótulo é centrado no nó, e o nó pode estar na borda do círculo — então um
@@ -381,6 +388,7 @@
           }
         }
         caixas.push(caixa);
+        caixasDeRotulo[no.id] = caixa;
         return { tx: tx, ty: ty };
       }
 
@@ -540,9 +548,22 @@
       }
     }
 
+    /* Onde o ponteiro acerta um nó.
+
+       Duas folgas, e as duas vêm do que o olho faz na tela:
+
+       1. A bolha tem HALO, e o halo é bem maior que o raio — quem mira na borda
+          visível está mirando fora do círculo. O alvo acompanha o que se vê, e não a
+          geometria: um alvo que não bate com o desenho é um clique que "não funciona".
+       2. O RÓTULO também é clicável. Ele é o pedaço maior e mais óbvio do conjunto, e
+          clicar no nome do caderno e não acontecer nada é o que faz parecer quebrado.
+
+       O círculo é testado primeiro (perto do centro manda), e o rótulo depois. */
     function noPonto(x, y) {
-      for (var i = nos.length - 1; i >= 0; i--) {
-        var no = nos[i];
+      var i;
+      var no;
+      for (i = nos.length - 1; i >= 0; i--) {
+        no = nos[i];
         // O clique é em coordenada de TELA; o nó guarda a posição "de mundo". A
         // conversão está feita em `_sx/_sy`, que `pintar` preenche.
         var sx = no._sx === undefined ? no.x : no._sx;
@@ -550,7 +571,13 @@
         var sr = no._sr === undefined ? no.raio : no._sr;
         var dx = sx - x;
         var dy = sy - y;
-        if (dx * dx + dy * dy <= (sr + 5) * (sr + 5)) return no;
+        var alcance = sr * 1.35 + 6;
+        if (dx * dx + dy * dy <= alcance * alcance) return no;
+      }
+      for (i = nos.length - 1; i >= 0; i--) {
+        var caixa = caixasDeRotulo[nos[i].id];
+        if (!caixa) continue;
+        if (x >= caixa[0] && x <= caixa[2] && y >= caixa[1] && y <= caixa[3]) return nos[i];
       }
       return null;
     }

@@ -186,6 +186,22 @@ frutiger_lm/
   não passa pelo corte dos "principais" mas suja toda contagem (`estatisticas`,
   `ocultos`, `vocabulario`). Apareceu como "76 ocultos" onde deviam ser 72.
   `delete_notebook` recolhe o que ficou sem menção nenhuma.
+- **`dispatchEvent` NÃO faz hit-test — ele não prova que um clique funciona.** Disparar
+  `mousedown`/`mouseup` direto no canvas passou por cima de um `div` invisível que cobria
+  o quadro inteiro e engolia todo clique de verdade. O teste "passava" e o app estava
+  morto ao toque. Para testar clique, testes dois: **`document.elementFromPoint(x, y)`**
+  diz quem o navegador escolheria (é o mesmo hit-test que ele usa), e o evento deve ser
+  disparado **nesse** elemento, com `bubbles: true` — não no alvo que você espera.
+- **`hidden` vs `display`: use a regra GLOBAL, nunca a pontual.** `[hidden] { display:
+  none !important; }` uma vez, no topo do CSS. Este defeito voltou QUATRO vezes (painel do
+  conceito, rótulo do filtro, `.lateral-painel`, e por fim o aviso de grafo vazio — que
+  tinha `position: absolute` sobre o canvas e matou o clique). Cada correção pontual
+  resolvia um caso e deixava o próximo. Se algum dia parecer que precisa de
+  `.alguma-coisa[hidden]`, a resposta é não precisa.
+- **A área de acerto tem que bater com o que o OLHO vê.** A bolha tem halo maior que o
+  raio: quem mira na borda visível mira fora do círculo. E o rótulo é o pedaço maior e
+  mais óbvio do conjunto — clicar no nome e não acontecer nada é o que faz parecer
+  quebrado. Alvo generoso (`raio * 1.35 + 6`) **mais** a caixa do rótulo.
 - **Vários sintomas visuais ao mesmo tempo? Suspeite do CONTRATO, não do desenho.**
   No mapa de cadernos eu nomeei o campo `cadernos`; o desenho lê `notebooks`. Um nome
   errado produziu três defeitos que não parecem ter a mesma causa: nós **cinzas**

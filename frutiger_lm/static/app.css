@@ -178,7 +178,22 @@ textarea { resize: vertical; }
   padding: 24px;
   z-index: 60;
 }
-.overlay[hidden] { display: none; }
+/* `hidden` é para esconder — e `display` vencia ele.
+
+   Este defeito apareceu QUATRO vezes, uma de cada forma: o painel do conceito (que
+   continuava visível), o rótulo do filtro "principais" (que não sumia no mapa), o
+   `.lateral-painel` e o aviso de grafo vazio (`#grafo-vazio`).
+
+   O último foi o pior, e o mais difícil de ver: o aviso tem `display: flex`,
+   `position: absolute` e cobre o CANVAS INTEIRO. Com `hidden: true` que não fazia
+   efeito, ele ficava invisível e **engolia todo clique real** — o grafo parecia morto,
+   e nenhum evento chegava ao canvas. Um `dispatchEvent` de teste não pega isso, porque
+   evento sintético não faz hit-test.
+
+   Quatro correções pontuais depois, a regra geral: qualquer elemento com o atributo
+   `hidden` não é desenhado, e nenhum `display` de classe vence de novo. */
+[hidden] { display: none !important; }
+
 
 .modal {
   background: linear-gradient(180deg, rgba(140, 235, 255, 0.11), rgba(8, 26, 40, 0.62));
@@ -773,7 +788,6 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: column;
 }
-.lateral-painel[hidden] { display: none; }
 
 .lateral-painel-head {
   flex: 0 0 auto;
@@ -886,10 +900,6 @@ input[type="range"]::-moz-range-thumb {
 }
 .grafo-toggle input { width: auto; }
 
-/* O `.grafo-toggle` é `display: flex`, e `display` vence o atributo `hidden` — o
-   mesmo defeito que o painel do conceito teve antes. Sem esta linha, esconder o
-   filtro no mapa de cadernos não esconderia nada. */
-.grafo-toggle[hidden] { display: none; }
 
 #painel-grafo .grafo-area {
   position: relative;
@@ -937,7 +947,6 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: -14px 0 40px rgba(0, 0, 0, 0.5), var(--bevel);
 }
 
-.conceito[hidden] { display: none; }
 
 .conceito-head {
   display: flex;

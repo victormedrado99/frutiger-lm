@@ -96,6 +96,7 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D055 | O repouso é o **mapa**: nó = caderno, aresta = conceito em comum; clicar no nó entra | DECIDIDO |
 | D056 | O desenho mostra **todas** as conexões (peso 1); o corte que sobra é de **nó** | DECIDIDO |
 | D057 | O nó é uma **bolha de vidro azul-clara** (Frutiger Aero); a cor por caderno saiu | DECIDIDO |
+| D058 | `[hidden]` é regra **global** no CSS; clique só se prova por `elementFromPoint` | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -1005,6 +1006,39 @@ saíam cortados na borda. Agora a escala é calculada em **duas passadas** — o
 com a raiz da escala, o halo é proporcional ao raio e o rótulo não encolhe nada, então as
 três dependem da escala de formas diferentes e a conta fechada não existe. Verificado
 varrendo as quatro bordas do canvas: zero pixel encostando.
+
+**D058 — o clique: um `div` invisível estava engolindo tudo.**
+
+O sintoma do usuário foi o mais direto possível: *"não clica, nada acontece quando clico
+nelas"*. E o meu teste de clique passava.
+
+A causa: `#grafo-vazio` (o aviso de "grafo vazio") tem `display: flex`, `position:
+absolute` e **cobre o canvas inteiro**. Ele estava com `hidden: true`, e **`display` vence
+o atributo `hidden`** — então ficava invisível e engolia todo clique real. O grafo parecia
+morto ao toque, e nenhum evento chegava ao canvas.
+
+O que fez o defeito passar despercebido foi o TESTE: eu disparava o evento **direto no
+canvas**, e **`dispatchEvent` não faz hit-test**. O caminho que eu testava não era o
+caminho do usuário. Um clique de verdade é: o navegador escolhe o elemento do topo
+(`elementFromPoint`) → o evento nasce nele → sobe. Testar clique é testar essas três
+coisas, e a partir de agora é assim aqui: `elementFromPoint` primeiro, evento disparado
+**nesse** elemento.
+
+**Este foi o QUARTO round do mesmo defeito** (`display` vencendo `hidden`), e o mais caro:
+os três anteriores eram de visibilidade, este matou a interação. As correções pontuais
+(`.overlay`, `.lateral-painel`, `.conceito`, `.grafo-toggle`) foram todas removidas e
+substituídas por uma regra só, no topo do CSS:
+
+    [hidden] { display: none !important; }
+
+**E duas fragilidades que o clique revelou**, corrigidas junto:
+
+- **o alvo era menor que a bolha visível.** O halo é bem maior que o raio, então quem
+  mirava na borda luminosa mirava fora do círculo. O alcance agora é `raio * 1.35 + 6`.
+- **o rótulo não era clicável.** Ele é o pedaço maior e mais óbvio do conjunto, e clicar
+  no nome do caderno sem nada acontecer é o que faz parecer quebrado. A caixa do rótulo
+  entrou como área de acerto (medida junto com a decisão de colisão, que já calculava a
+  caixa). A área clicável da bolha pequena foi de ~19px para **44px** de faixa.
 
 ### O que o F4 não faz
 
