@@ -255,3 +255,62 @@ def test_dica_de_falha_aponta_o_servidor_local_quando_o_endereco_e_local(cliente
 
     dica = _dica_de_falha(RuntimeError("Connection error."))
     assert ":1234" in dica and "LM Studio" in dica
+
+
+def test_faltando_nomeia_o_que_falta():
+    assert model_store.faltando(model_store.ModelConfig()) == ["endereço", "modelo", "chave da API"]
+    assert model_store.faltando(
+        model_store.ModelConfig(base_url="http://127.0.0.1:1234/v1", model="m")
+    ) == []
+    assert model_store.faltando(
+        model_store.ModelConfig(base_url="https://api.exemplo.com/v1", model="m")
+    ) == ["chave da API"]
+
+
+def test_salvar_so_a_chave_e_recusado_e_NAO_grava(cliente):
+    """O bug que apareceu no uso real.
+
+    O caminho natural — abrir o modal, colar a chave, clicar em Salvar — deixava
+    endereço e modelo em branco. Antes: salvava em silêncio e o chat não
+    funcionava depois. Agora: recusa nomeando o que falta, e **nada é gravado**,
+    para não deixar um estado meio-configurado no disco.
+    """
+    resp = cliente.post("/api/settings/model", json={"api_key": "sk-so-a-chave-123456"})
+    assert resp.status_code == 400
+    detalhe = resp.json()["detail"]
+    assert "endereço" in detalhe and "modelo" in detalhe
+
+    # nem a chave foi gravada: validar vem antes de escrever
+    assert model_store.load().api_key == ""
+    assert (settings.data_dir / "model.json").exists() is False
+
+
+def test_config_incompleta_nao_deixa_o_arquivo_pela_metade(cliente):
+    """Uma config boa seguida de uma tentativa incompleta não pode estragar a boa."""
+    cliente.post(
+        "/api/settings/model",
+        json={"base_url": "https://api.exemplo.com/v1", "model": "m", "api_key": "sk-boa"},
+    )
+    resp = cliente.post("/api/settings/model", json={"model": "outro"})  # sem endereço
+    assert resp.status_code == 400
+    # a config boa continua intacta
+    assert model_store.load().base_url == "https://api.exemplo.com/v1"
+    assert model_store.load().api_key == "sk-boa"
+    assert model_store.load().model == "m"
+
+
+def test_config_completa_pela_rota_e_aceita(cliente):
+    resp = cliente.post(
+        "/api/settings/model",
+        json={
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+            "api_key": "sk-completa",
+            "temperature": 0.3,
+        },
+    )
+    assert resp.status_code == 200
+    corpo = resp.json()
+    assert corpo["configured"] is True
+    assert corpo["temperature"] == 0.3
+    assert "sk-completa" not in resp.text

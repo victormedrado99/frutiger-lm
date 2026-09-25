@@ -165,18 +165,28 @@ async def get_model_settings() -> dict[str, Any]:
 
 @app.post("/api/settings/model")
 async def set_model_settings(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """Salva a config vinda do formulário.
+    """Salva a config vinda do formulário, **recusando config incompleta**.
+
+    Recusar não é preciosismo: salvar só a chave, com endereço e modelo em
+    branco, produzia um estado que não funciona e não avisa. A pessoa via
+    "salvo", fechava o modal, e o chat não funcionava depois — sem pista do
+    motivo. Agora o que falta volta nomeado no erro.
 
     `api_key` ausente significa "não mexi no campo", e preserva a chave salva —
     o formulário devolve ela mascarada, então tratá-la como novo valor apagaria
     a chave de quem só quis trocar o modelo.
     """
-    cfg = model_store.apply(
+    cfg = model_store.montar(
         base_url=payload.get("base_url", ""),
         model=payload.get("model", ""),
         api_key=payload.get("api_key"),
         temperature=payload.get("temperature"),
     )
+    falta = model_store.faltando(cfg)
+    if falta:
+        raise HTTPException(400, "Falta " + ", ".join(falta) + " para o modelo funcionar.")
+
+    model_store.save(cfg)
     return {"configured": cfg.configurado, **model_store.masked()}
 
 

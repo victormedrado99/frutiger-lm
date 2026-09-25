@@ -70,6 +70,7 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D029 | Nome "Frutiger": verificar conflito de marca antes de publicar | ABERTO |
 | D030 | A chave da API mora em `<data_dir>/model.json` (0600) e **nunca** volta ao navegador | DECIDIDO |
 | D031 | Config de modelo vem da UI; `.env` (`LLM_AGENT`) é o fallback de quem prefere versionar | DECIDIDO |
+| D032 | Config de modelo incompleta é **recusada** com o que falta nomeado — validar antes de gravar | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -169,6 +170,26 @@ cobre o caso de VPS, onde você quer a config no ambiente.
 Formato do `.env`: `LLM_AGENT=openai|<base_url>|<modelo>|<chave>`. O prefixo
 `openai` está lá para deixar espaço a outros protocolos sem quebrar o formato
 depois (D020).
+
+### D032 — config incompleta é recusada, não engolida
+
+Esta nasceu de um uso real, não de teoria. O caminho natural do formulário era:
+abrir o modal, colar a chave, clicar em Salvar. Endereço e modelo ficavam em
+branco, o app dizia **"salvo"**, e a configuração resultante não funcionava.
+
+Três correções, e a terceira é a que importa:
+
+1. A rota **valida antes de gravar** (`montar` → `faltando` → `save`), então uma
+   tentativa inválida não deixa estado meio-configurado no disco — e não
+   sobrescreve uma configuração boa que já existia.
+2. O erro **nomeia o que falta** ("Falta endereço, modelo"), em vez de só dizer
+   que está incompleto.
+3. A tela **guia em vez de só recusar**: com chave salva e sem provedor, o texto
+   de abertura diz exatamente isso — antes de a pessoa errar, não depois.
+
+A lição geral, que vale para o resto do projeto: **um formulário que aceita um
+estado inutilizável em silêncio é pior do que um que recusa.** O usuário perde
+tempo procurando o problema num lugar onde ele não está.
 
 ---
 

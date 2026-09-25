@@ -54,11 +54,7 @@ class ModelConfig:
 
     @property
     def configurado(self) -> bool:
-        return bool(
-            self.base_url
-            and self.model
-            and (self.api_key or not self.precisa_de_chave)
-        )
+        return not faltando(self)
 
     def dica_da_chave(self) -> str:
         """Máscara para a UI: nunca o valor, só o suficiente para reconhecer."""
@@ -67,6 +63,24 @@ class ModelConfig:
         if len(self.api_key) <= 8:
             return "•" * len(self.api_key)
         return f"{self.api_key[:4]}{'•' * 6}{self.api_key[-4:]}"
+
+
+def faltando(cfg: ModelConfig) -> list[str]:
+    """O que impede este modelo de funcionar, nomeado para mostrar na tela.
+
+    Existe porque salvar só a chave (com endereço e modelo em branco) produzia
+    uma configuração inutilizável **em silêncio** — o app dizia "salvo" e o chat
+    não funcionava depois. Nomear o que falta é a diferença entre um erro que a
+    pessoa resolve em dez segundos e um mistério.
+    """
+    falta = []
+    if not cfg.base_url:
+        falta.append("endereço")
+    if not cfg.model:
+        falta.append("modelo")
+    if cfg.precisa_de_chave and not cfg.api_key:
+        falta.append("chave da API")
+    return falta
 
 
 def _caminho() -> Path:
@@ -118,20 +132,38 @@ def masked() -> dict:
     }
 
 
-def apply(base_url: str, model: str, api_key: str | None, temperature: float | None) -> ModelConfig:
-    """Atualiza a config vindo da UI.
+def montar(
+    base_url: str,
+    model: str,
+    api_key: str | None,
+    temperature: float | None,
+) -> ModelConfig:
+    """Monta a config a partir do formulário, **sem gravar**.
+
+    Separado de `save` para que a rota valide antes de escrever. Foi justamente
+    gravar primeiro e nunca validar que deixou passar uma config inutilizável.
 
     ``api_key=None`` significa "não mexi no campo" e preserva a chave que já
     estava salva — sem isso, salvar o formulário com o campo mascarado apagaria
     a chave do usuário.
     """
     atual = load()
-    cfg = ModelConfig(
+    return ModelConfig(
         base_url=(base_url or "").strip().rstrip("/"),
         model=(model or "").strip(),
-        api_key=atual.api_key if api_key is None else api_key.strip(),
+        api_key=atual.api_key if api_key is None else str(api_key).strip(),
         temperature=atual.temperature if temperature is None else float(temperature),
     )
+
+
+def apply(
+    base_url: str,
+    model: str,
+    api_key: str | None,
+    temperature: float | None,
+) -> ModelConfig:
+    """Conveniência: montar e gravar. Use `montar` quando precisar validar antes."""
+    cfg = montar(base_url, model, api_key, temperature)
     save(cfg)
     return cfg
 

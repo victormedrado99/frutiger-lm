@@ -165,6 +165,22 @@
         ? "Endereço remoto: a chave é obrigatória."
         : "Endereço local (LM Studio, llama.cpp): a chave não é necessária.";
 
+      // Guia em vez de campo vazio: o caminho natural (colar a chave e salvar)
+      // produzia uma config inutilizável sem avisar. Endereço e modelo são
+      // obrigatórios, e a tela diz isso antes de a pessoa errar.
+      var intro = el("md-intro");
+      if (s.configured) {
+        intro.innerHTML = "Modelo em uso. Troque o que quiser e clique em Salvar — " +
+          "a chave fica só na sua máquina e nunca volta para o navegador.";
+      } else if (s.has_key) {
+        intro.innerHTML = "Sua chave já está salva, mas ainda falta escolher o " +
+          "<b>provedor</b> (ou preencher endereço e modelo) para o modelo funcionar.";
+      } else {
+        intro.innerHTML = "Comece escolhendo um <b>provedor</b> abaixo — ele preenche o " +
+          "endereço — depois o nome do modelo e a sua chave. Endereço local " +
+          "(LM Studio, llama.cpp) não pede chave.";
+      }
+
       el("md-result").hidden = true;
       C.openModal("modal-model");
       setTimeout(function () { el("md-url").focus(); }, 40);
