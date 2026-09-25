@@ -727,12 +727,112 @@ filtra por frequência. Há teste.
 4. UI: painel na home e tela do conceito
 5. prova real, no caderno de verdade
 
-### F4 — Painel direito do caderno
-- [ ] cards com repetição espaçada (SRS)
-- [ ] lacunas: o que as fontes NÃO cobrem
-- [ ] contradições entre fontes, lado a lado
-- [ ] fontes órfãs (nunca usadas numa resposta)
-- [ ] notas do usuário por conceito
+### F4 — Painel de estudo  ← PLANO ESCRITO (abaixo)
+- [ ] `study.py`: cards e a repetição espaçada (SM-2 simplificado), lógica pura
+- [ ] `knowledge.py`: `lacunas()` e `fontes_que_nao_contribuiram()` — consultas ao grafo
+- [ ] `engine/estudo.py`: gerar card (do conceito + trecho) e achar contradição
+- [ ] `engine/tools/estudo.py`: o agente respondendo "o que meu material não cobre"
+- [ ] abas no painel direito: **Gerar** | **Estudar**
+- [ ] a revisão do dia (grade: errei · difícil · bom · fácil)
+- [ ] notas por conceito (a tabela `notes` já existe desde o F3)
+- [ ] `source_usage`: a citação `[n]` na resposta vira registro de uso da fonte
+
+---
+
+## 7.2 Plano do F4 — o painel de estudo
+
+### O que a fase entrega
+
+Transformar o painel direito de **gerador de documentos** em **instrumento de
+estudo**. O F3 deixou a matéria-prima (conceitos ancorados em trecho); o F4 usa essa
+matéria-prima para dizer o que você sabe, o que você não sabe, e o que o seu material
+não cobre.
+
+### A regra que esta fase herda do F3
+
+O F3 estabeleceu: **não afirmar o que não se pode conferir**. O F4 leva a mesma régua
+para um terreno onde é muito fácil trapacear — "lacunas" e "contradições".
+
+> **Lacuna é fato verificável, não opinião do modelo sobre o que falta.**
+
+Um modelo listando "tópicos que faltam no seu material" é opinião: ele não leu o que
+você não tem, ele comparou com o que ele já sabe. Seria o único lugar deste app onde
+ele afirmaria algo sem lastro — e é justamente o tipo de coisa que soa mais
+impressionante e é menos confiável.
+
+Então as lacunas do F4 são três fatos, todos computáveis do grafo, sem chamada de
+modelo e sem chute:
+
+1. **Conceito nomeado e não desenvolvido** — aparece uma vez e não tem nenhuma
+   ligação afirmada. O material citou e não explicou.
+2. **Conceito que existe em outro caderno e não neste** — você estudou ali e aqui ele
+   nunca aparece. Só é possível porque o grafo é global (D045).
+3. **Fonte que não contribuiu** — não gerou menção nenhuma: o material entrou e não
+   virou conhecimento.
+
+O que a pessoa pode fazer com isso é conferir cada uma na fonte. Uma "lacuna" que ela
+não pode conferir seria exatamente o que este projeto não faz.
+
+### As peças, na ordem
+
+1. **`db.py`** — tabelas `cards` e `source_usage` (a de `notes` já existe do F3).
+2. **`study.py`** — o card e o agendamento. Lógica pura, sem modelo, testável.
+3. **`knowledge.py`** — `lacunas()`, `fontes_que_nao_contribuiram()`, `cards_devidos()`.
+4. **`engine/estudo.py`** — os dois usos de modelo: **compor a pergunta** de um card a
+   partir do trecho, e **comparar duas fontes** sobre o mesmo conceito.
+5. **`engine/tools/estudo.py`** — o agente respondendo "o que meu material não cobre?"
+   e "o que eu tenho para revisar hoje?".
+6. **Rotas e UI** — abas no painel direito, a revisão e as notas.
+
+### Decisões do plano
+
+**D048 — o painel de estudo são abas na coluna que já existe, não uma quarta coluna.**
+O caderno já tem três colunas e a soma delas ocupa a tela. "Gerar" e "Estudar" são as
+duas a mesma natureza — coisa derivada das fontes — então dividem a coluna.
+
+**D049 — o agendamento é um SM-2 simplificado, e a simplificação é deliberada.**
+Quatro notas (errei · difícil · bom · fácil), fator de facilidade partindo de 2.5,
+intervalo que cresce pelo fator. Um algoritmo elaborado sem uso real é fé: o que
+importa é que a revisão de hoje seja curta e que o card difícil volte logo. Se o uso
+mostrar que não basta, aí se elabora — com dado.
+
+**D050 — contradição é comparação sobre o MESMO conceito, e exige as duas citações.**
+Percorrer todos os pares de fontes seria caro e quase todo par não tem o que comparar.
+O caminho: conceitos que aparecem em **duas ou mais fontes**, os trechos de cada um
+lado, uma chamada por conceito, e o modelo responde se alguma dupla conflita —
+citando as duas. Contradição sem as duas citações é descartada, como o trecho
+inventado na extração. É ação explícita (D042): custa chamadas de modelo.
+
+**D051 — a citação `[n]` na resposta é o registro de uso da fonte.**
+"Fonte órfã" só é verdade se eu souber o que foi usado. Em vez de instrumentar o
+agente, uso o que ele já escreve: os marcadores `[n]` no texto, que apontam para a
+numeração determinística das fontes (feita no F1 justamente para casar). A resposta
+vira registro em `source_usage`, e "órfã" passa a significar "nunca citada numa
+resposta" — conferível, em vez de suposto.
+
+### O que o F4 não faz
+
+- **geração de mídia**: nem áudio, nem imagem, nem vídeo. Nunca esteve no escopo.
+- embeddings e arestas por similaridade — F6
+- o PDF e a compilação — F5
+
+### Critério de pronto
+
+- revisar os cards devidos do dia no caderno real, com as quatro notas
+- cada card mostra o **trecho de origem** no verso: o card é conferível como tudo
+- as lacunas listadas são conferíveis uma a uma nas fontes
+- uma contradição encontrada no material real, com as duas citações lado a lado
+- perguntar no chat *"o que meu material não cobre?"* e ele responder pelos fatos do
+  grafo, não por opinião
+
+### Ordem de execução
+
+1. tabelas + `study.py` + SRS + testes — lógica pura
+2. `knowledge.lacunas()` + testes — consultas, sem modelo
+3. `engine/estudo.py` (card e contradição) + fake + testes
+4. tools + rotas
+5. UI: abas, a revisão, as notas
+6. prova real, no caderno de verdade
 
 ### F5 — Export
 - [ ] `graphs/artefato.py`: passe de compilação (D028)
