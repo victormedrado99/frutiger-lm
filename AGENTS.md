@@ -67,6 +67,8 @@ frutiger_lm/
   ingest.py         extração (PDF, URL, YouTube, texto)
   prompts.py        BASE_RULES + os 7 templates de output
   model_store.py    a chave da API e a config do modelo (data/model.json, 0600)
+  auth.py           o login (D069): hash da senha, cookie assinado, freio de força bruta
+                    (data/auth.json, 0600) — a checagem de sessão mora no app.py
   knowledge.py      a loja do grafo: conceitos, menções, arestas, lacunas
   study.py          cartões e o SRS, lógica pura (sem modelo)
   engine/           A FRONTEIRA — só aqui entra LangChain
@@ -97,6 +99,8 @@ frutiger_lm/
                     lugar: os seletores são os mesmos desde antes.
                     `common.js` tem o `conversa()` — o chat do caderno e o dock da
                     home usam o MESMO, para não divergirem
+                    `login.html` + `login.js` são a tela de entrada (D069): ela é a
+                    única página que carrega SEM sessão, junto do `app.css`
                     `imprimir.html` + `imprimir.css` são a folha de papel (F5):
                     tema CLARO, porque o Aero escuro imprime ilegível
 ```
@@ -301,6 +305,24 @@ frutiger_lm/
   `mentions` sem `source_id`/`output_id` ganham a classe `da-conversa` (lilás, a mesma cor
   da aresta inferida) e o rótulo "conversa — dita pelo modelo". Se você criar outro lugar
   que mostre menções, marque-as também.
+- **Estado em memória também vaza entre testes.** A oficina guarda runs; o freio de força
+  bruta do login (`auth._tentativas`) guarda origens bloqueadas. Os dois são zerados no
+  `estado_limpo` do conftest, e os dois já causaram (ou causariam) o mesmo defeito: um teste
+  que passa por causa do anterior. Tabela nova → limpeza nova; dicionário em memória →
+  limpeza nova também.
+- **O `401` da própria tela de login não pode redirecionar.** O `C.api` manda para `/login`
+  em qualquer 401 (sessão expirada) — mas ali o 401 significa "senha errada" e virar
+  redirecionamento apagaria o que a pessoa digitou. A guarda é `pathname !== "/login"`. Se
+  você criar outra tela pública que chame a API, pense nisso antes de confiar no `C.api`.
+- **A senha não entra em argumento de linha de comando.** `--senha` pergunta com `getpass`
+  (sem eco) em vez de aceitar `--senha=xyz`: argumento fica no histórico do shell e na lista
+  de processos, visível para qualquer um na máquina.
+- **Trocar a senha derruba as sessões — de propósito.** O segredo que assina o cookie é
+  regerado em `auth.definir()`. Se alguém "otimizar" isso mantendo o segredo, um crachá
+  roubado antes da troca continua valendo depois dela, e a troca deixa de significar algo.
+- **A guarda do `--host` é parte da funcionalidade, não um enfeite.** Sem senha e olhando
+  para a rede, o app recusa subir (D069). Teste-a se mexer no `__main__`: é a diferença entre
+  um app que se protege e um que confia na memória de quem hospeda.
 
 ## Validar com o modelo real
 

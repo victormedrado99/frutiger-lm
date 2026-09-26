@@ -67,11 +67,44 @@
       bm.title = m.configured
         ? "Modelo configurado — clique para trocar"
         : "Nenhum modelo configurado — clique para colocar a sua chave";
+      mostrarSair(s.auth);
     } catch (err) {
       pill.className = "pill bad";
       pill.textContent = "app sem resposta";
       pill.title = err.message;
     }
+  }
+
+  /* O "sair" existe só quando há login (D069) — e nasce aqui, e não no HTML, para
+     aparecer numa página que é servida com ou sem senha sem precisar de dois arquivos.
+     Sem senha definida não há sessão para encerrar, e um botão que não faz nada é
+     exatamente o tipo de ruído que este app evita. */
+  function mostrarSair(auth) {
+    var atual = document.getElementById("btn-sair");
+    if (!auth || !auth.habilitado) {
+      if (atual) atual.remove();
+      return;
+    }
+    if (atual) {
+      atual.title = "Sair da sessão de " + (auth.usuario || "?") + " neste navegador";
+      return;
+    }
+    var botao = document.createElement("button");
+    botao.className = "btn btn-ghost";
+    botao.id = "btn-sair";
+    botao.textContent = "sair";
+    botao.title = "Sair da sessão de " + (auth.usuario || "?") + " neste navegador";
+    botao.addEventListener("click", async function () {
+      botao.disabled = true;
+      try {
+        await C.api("/api/logout", { method: "POST" });
+      } catch (err) {
+        /* mesmo que falhe, a página de entrada é o estado honesto: o cookie foi tirado */
+      }
+      window.location.href = "/login";
+    });
+    var modelo = document.getElementById("btn-model");
+    modelo.parentNode.insertBefore(botao, modelo);
   }
 
   /* ------------------------------- eventos ------------------------------- */

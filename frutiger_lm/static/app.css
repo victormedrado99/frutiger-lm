@@ -148,6 +148,33 @@ input:focus, textarea:focus, select:focus {
 }
 textarea { resize: vertical; }
 
+/* ---------------------------------------------------- a tela de login (D069)
+
+   A mesma linguagem do resto: vidro sobre a aurora, cantos redondos, o brilho no
+   ciano. É a primeira coisa que a pessoa vê quando o app está hospedado, e ela diz o
+   que o app é antes de pedir a senha. */
+.corpo-login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.login-caixa {
+  width: 100%;
+  max-width: 360px;
+  padding: 30px 28px 22px;
+  background: linear-gradient(180deg, rgba(140, 235, 255, 0.11), rgba(8, 26, 40, 0.62));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(26px) saturate(180%);
+  box-shadow: var(--bevel), var(--shadow);
+}
+.brand-login { font-size: 21px; margin-bottom: 4px; }
+.login-sub { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0 0 20px; }
+.login-btn { width: 100%; justify-content: center; margin-top: 8px; }
+.login-caixa .hint { text-align: center; }
+
 /* ------------------------------------------------------------------- pills */
 
 .pill {

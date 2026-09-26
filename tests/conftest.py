@@ -18,7 +18,7 @@ os.environ["FRUTIGER_DATA_DIR"] = tempfile.mkdtemp(prefix="frutiger-tests-")
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from frutiger_lm import db  # noqa: E402
+from frutiger_lm import auth, db  # noqa: E402
 from frutiger_lm.config import settings  # noqa: E402
 from frutiger_lm.engine import oficina  # noqa: E402
 
@@ -27,6 +27,7 @@ db.init_db()
 # Estado que não mora nas tabelas e por isso escapava da limpeza.
 ARQUIVOS_DE_ESTADO = (
     "model.json",  # a config do modelo (e a chave)
+    "auth.json",  # o login: usuário, hash e o segredo da sessão (D069)
     "checkpoints.db",  # a conversa
     "checkpoints.db-wal",
     "checkpoints.db-shm",
@@ -68,6 +69,9 @@ def estado_limpo():
         # ser zerada — é o mesmo vazamento que o `checkpoints.db` causava, só que sem
         # arquivo para denunciar.
         oficina.oficina.limpar()
+        # Idem para o freio de força bruta do login (D069): uma origem bloqueada num
+        # teste deixaria o próximo recebendo 429 sem ter feito nada.
+        auth._esquecer_tudo()
 
     limpar()
     yield

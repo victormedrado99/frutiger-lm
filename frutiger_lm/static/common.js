@@ -14,6 +14,15 @@
     var data = null;
     try { data = text ? JSON.parse(text) : null; } catch (e) { data = { detail: text }; }
     if (!resp.ok) {
+      // Sessão expirada com o app hospedado (D069): a API responde 401, e o caminho de
+      // volta é a tela de entrada, com o pedido atual no `next` para a pessoa cair onde
+      // estava. Na PRÓPRIA tela de login o 401 é "senha errada" e tem que virar
+      // mensagem — recarregar ali apagaria o que a pessoa digitou.
+      if (resp.status === 401 && window.location.pathname !== "/login") {
+        var aqui = window.location.pathname + window.location.search;
+        window.location.href = "/login?next=" + encodeURIComponent(aqui);
+        throw new Error("Sessão expirada.");
+      }
       var msg = (data && (data.detail || data.message)) || ("HTTP " + resp.status);
       if (typeof msg !== "string") msg = JSON.stringify(msg);
       throw new Error(msg);

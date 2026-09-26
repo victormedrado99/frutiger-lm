@@ -9,12 +9,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, ingest, knowledge, model_store, prompts, study
+from . import auth, db, ingest, knowledge, model_store, prompts, study
 from .config import settings
 from .engine import (
     agent,
@@ -119,6 +120,112 @@ async def revalidar_estaticos(request: Any, call_next: Any) -> Any:
 
 
 # --------------------------------------------------------------------------- #
+# Login (D069) — a checagem mora aqui, e nenhuma rota sabe que ele existe
+# --------------------------------------------------------------------------- #
+
+# O que se alcança sem sessão: a tela de login, o que ela precisa para carregar (a rota
+# que recebe a senha e os estáticos) e o logout, que só apaga um cookie.
+LIVRES = frozenset({"/login", "/api/login", "/api/logout", "/favicon.ico"})
+
+
+def _livre(caminho: str) -> bool:
+    return caminho in LIVRES or caminho.startswith("/static/")
+
+
+def _plantar_cookie(resposta: Any, token: str, request: Request) -> None:
+    """O crachá. `Secure` entra sozinho quando quem fala é um proxy HTTPS (D069).
+
+    O app não faz TLS — quem hospeda põe nginx/Caddy na frente. O jeito de saber se o
+    navegador está falando HTTPS é o `X-Forwarded-Proto`, e é por isso que ele é lido.
+    """
+    seguro = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    resposta.set_cookie(
+        auth.COOKIE,
+        token,
+        max_age=auth.TTL,
+        httponly=True,       # o JS da página não lê o cookie
+        samesite="lax",      # formulário de outro site não carrega a sessão junto
+        secure=seguro,
+        path="/",
+    )
+
+
+@app.middleware("http")
+async def exigir_login(request: Request, call_next: Any) -> Any:
+    """Sem sessão, ninguém passa — menos a tela de login.
+
+    Um middleware só, e na frente de tudo (o último registrado é o mais externo). Se a
+    checagem fosse por rota, a rota que alguém esquecesse de marcar seria a porta.
+
+    Com o app aberto (sem senha definida) isto é um passe livre — e é o `__main__` que
+    recusa subir olhando para a rede nesse estado.
+    """
+    if not auth.habilitado() or _livre(request.url.path):
+        return await call_next(request)
+
+    token = request.cookies.get(auth.COOKIE)
+    if auth.sessao_valida(token):
+        resposta = await call_next(request)
+        # Prazo deslizante: quem usa não é deslogado no meio do trabalho.
+        if auth.precisa_renovar(token):
+            _plantar_cookie(resposta, auth.criar_sessao(), request)
+        return resposta
+
+    # A API responde em JSON (o chat e o painel mostram o motivo); página vira tela de login.
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(
+            {"detail": "Sessão expirada ou ausente. Entre de novo."}, status_code=401
+        )
+    destino = "/login" + (f"?next={quote(request.url.path)}" if request.url.path != "/" else "")
+    return RedirectResponse(destino, status_code=303)
+
+
+@app.get("/login", include_in_schema=False)
+async def pagina_login() -> Any:
+    """A tela de login — e, sem senha definida, um atalho de volta para a home."""
+    if not auth.habilitado():
+        return RedirectResponse("/", status_code=303)
+    return FileResponse(STATIC_DIR / "login.html")
+
+
+@app.post("/api/login")
+async def entrar(request: Request, payload: dict[str, Any] = Body(...)) -> Any:
+    """Confere a senha e devolve a sessão no cookie (D069).
+
+    `scrypt` do lado de dentro custa dezenas de milissegundos — o que já limita quem
+    tenta adivinhar. O freio por origem (5 tentativas, e depois espera que dobra até 15
+    minutos) existe porque 50 ms × muitos e muitos palpites ainda é rápido demais.
+    """
+    if not auth.habilitado():
+        raise HTTPException(400, "Este app está aberto: não há senha definida para entrar.")
+    origem = request.client.host if request.client else "desconhecido"
+    espera = auth.bloqueado(origem)
+    if espera > 0:
+        raise HTTPException(429, f"Tentativas demais. Espere {int(espera) + 1} segundo(s).")
+
+    if not auth.conferir(str(payload.get("usuario", "")), str(payload.get("senha", ""))):
+        auth.registrar_falha(origem)
+        raise HTTPException(401, "Usuário ou senha incorretos.")
+
+    auth.limpar_tentativas(origem)
+    resposta = JSONResponse({"ok": True, "usuario": auth.usuario()})
+    _plantar_cookie(resposta, auth.criar_sessao(), request)
+    return resposta
+
+
+@app.post("/api/logout")
+async def sair() -> Any:
+    """Sair é parar de apresentar o crachá: sem tabela de sessão, não há o que revogar.
+
+    O que existe é a troca da senha, que troca o segredo da assinatura e derruba de uma
+    vez todas as sessões emitidas até ali (D069).
+    """
+    resposta = JSONResponse({"ok": True})
+    resposta.delete_cookie(auth.COOKIE, path="/")
+    return resposta
+
+
+# --------------------------------------------------------------------------- #
 # Status
 # --------------------------------------------------------------------------- #
 
@@ -140,6 +247,10 @@ async def status() -> dict[str, Any]:
             "name": cfg["model"],
             "base_url": cfg["base_url"],
         },
+        # Se há login e quem é o dono. Só se chega aqui com sessão (ou com o app aberto),
+        # então isto não conta nada a quem está fora — e é o que a barra usa para decidir
+        # se mostra o "sair" (D069).
+        "auth": auth.resumo(),
         "data_dir": str(settings.data_dir),
         "inline_limit": settings.inline_limit,
         "output_templates": {k: v["label"] for k, v in prompts.OUTPUT_TEMPLATES.items()},

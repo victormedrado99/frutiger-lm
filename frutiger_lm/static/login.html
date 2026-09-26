@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar · Frutiger LM</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📓</text></svg>">
+</head>
+<body class="corpo-login">
+
+  <!-- A tela de entrada (D069). Sem cadastro, sem "esqueci a senha", sem link de
+       terceiro: é um dono, uma senha, e o que a pessoa veio buscar do outro lado. -->
+  <main class="login-caixa">
+    <div class="brand brand-login">Frutiger <span>LM</span></div>
+    <p class="login-sub">Seus cadernos ficam aqui — entre para continuar.</p>
+
+    <form id="login-form" autocomplete="on">
+      <div class="field">
+        <label for="login-usuario">Usuário</label>
+        <input type="text" id="login-usuario" autocomplete="username" autocapitalize="off"
+               spellcheck="false" autofocus>
+      </div>
+      <div class="field">
+        <label for="login-senha">Senha</label>
+        <input type="password" id="login-senha" autocomplete="current-password">
+      </div>
+
+      <div id="login-erro" class="out-item err-box" hidden></div>
+
+      <button class="btn btn-primary login-btn" id="login-entrar" type="submit">Entrar</button>
+      <p class="hint">A sessão fica salva neste navegador por 30 dias.</p>
+    </form>
+  </main>
+
+  <script src="/static/common.js"></script>
+  <script src="/static/login.js"></script>
+</body>
+</html>

@@ -107,6 +107,7 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D066 | Parecidos **demais** viram uma lista de suspeita de duplicata — REVISTA pela D067 | DECIDIDO |
 | D067 | A suspeita é **convite a olhar**, não atalho para mesclar: a medição mostrou que parecido não é igual | DECIDIDO |
 | D068 | "Virar conhecimento" guarda a **conclusão do chat** como menção ancorada — e a menção diz que veio da CONVERSA | DECIDIDO |
+| D069 | Login: **um usuário e uma senha**, sessão em cookie assinado, e a porta pública **recusa subir** sem senha definida | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -1369,6 +1370,42 @@ Cinco decisões dentro desta, e cada uma tem um motivo:
   próprio arquivasse as respostas que achasse boas, o grafo cresceria por auto-avaliação —
   e a pessoa perderia o lugar onde ela diz "isto presta".
 
+### D069 — o login: um dono, e a porta pública recusa abrir sem senha
+
+O app nasceu local: escuta em `127.0.0.1`, e quem está na máquina já é o dono. Hospedar muda
+a premissa inteira — a partir do momento em que a porta olha para a rede, tudo o que estava
+protegido por "só quem está no computador alcança" passa a estar protegido por nada. Este app
+guarda **cadernos, fontes, conversas e a chave da API do modelo**: o que se perde num acesso
+indevido não é só leitura, é a sua chave.
+
+A decisão foi **um usuário e uma senha**, com a mesma forma do n8n:
+
+- **A senha nunca é guardada.** `scrypt` (da stdlib — sem dependência nova) com sal aleatório
+  de 16 bytes, e a comparação é `hmac.compare_digest`. O arquivo é `data/auth.json`, `0600`,
+  ao lado do `model.json`, pela mesma regra de instância (D030): um diretório de dados é uma
+  instalação, e o segredo dela mora nela.
+- **A sessão é um cookie assinado**, e não uma linha em tabela: `base64(payload).hmac`, com o
+  segredo aleatório no `auth.json`. `HttpOnly` (o JS da página não lê), `SameSite=Lax`
+  (bloqueia CSRF de formulário externo sem quebrar o SSE) e `Max-Age` de 30 dias — que é o
+  "ficar salvo no navegador" que se pediu. O prazo desliza: quem usa, não é deslogado.
+  **Trocar a senha troca o segredo**, e isso derruba todas as sessões de uma vez: é assim que
+  se tira alguém de dentro, sem precisar de tabela de revogação.
+- **Sem senha definida o app continua aberto — mas só em `127.0.0.1`.** Se `--host` aponta
+  para fora do loopback e não há senha, ele **recusa subir** e imprime o comando que resolve.
+  Segurança que depende de alguém lembrar de ligar não é segurança; e o uso de hoje (local, e
+  o dos 343 testes) segue sem senha nenhuma.
+
+O que fica **fora**, de propósito, e vale dizer porque alguém vai perguntar:
+
+- multiusuário, cadastro, convite, papel e permissão — o público é uma pessoa;
+- OAuth/SSO — o app não fala com provedor de identidade e não vai passar a falar por causa de
+  um login de uma pessoa;
+- **TLS**: o app não faz HTTPS. Quem hospeda põe nginx/Caddy na frente, e é lá que o
+  certificado vive. O `Secure` do cookie entra sozinho pelo `X-Forwarded-Proto` do proxy.
+
+E o que **não** muda: nenhuma rota ganha `if usuario`. A checagem mora num middleware só, na
+frente de tudo — login espalhado por rota é login com buraco esquecido.
+
 ### O que só a medição real ensinou (F6)
 
 Três coisas que nenhum teste pegaria, porque os três casos passam em teste e falham no uso.
@@ -1705,9 +1742,9 @@ O que "me atualize em cada decisão de arquitetura" significa na prática:
 
 ---
 
-## 12. Estado atual (2026-09-25 — F1 a F6 concluídas, e o F3 completo)
+## 12. Estado atual (2026-09-25 — F1 a F6 concluídas, o F3 completo e o login)
 
-Funcionando, com **343 testes** e ruff limpo:
+Funcionando, com **366 testes** e ruff limpo:
 
 - cadernos, fontes (link, PDF, YouTube, texto), chat com streaming e citação,
   7 templates de output, UI em três painéis com tema Frutiger Aero
@@ -1755,6 +1792,12 @@ Funcionando, com **343 testes** e ruff limpo:
   resposta**, com `thread_id` + `message_id` no lugar do `source_id`. Provado com modelo
   real: 3 conceitos de uma resposta, e a menção aparece na tela do conceito marcada como
   "dita pelo modelo" (lilás) ao lado das do material (ciano)
+- **login para hospedar** (D069): um usuário, uma senha (`scrypt`, sem dependência nova) e
+  sessão em cookie assinado — `HttpOnly`, `SameSite=Lax`, 30 dias com prazo que desliza.
+  Sem senha o app segue aberto, mas **recusa subir** olhando para a rede; e trocar a senha
+  derruba todas as sessões. Provado ponta a ponta num diretório descartável: a raiz
+  redireciona, a API responde 401, o login errado dá mensagem, o certo abre o app, o "sair"
+  volta para a tela de entrada — e o JS da página não consegue ler o cookie
 - motor: **agente LangGraph próprio**, dentro do app. O Hermes saiu de tudo
 - o chat responde com o modelo que **você** configura; hoje, `deepseek-v4-flash`
 - `frutiger-lm.service` (app, 8765) ativo e habilitado — `NRestarts=0`
