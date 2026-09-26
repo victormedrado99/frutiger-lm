@@ -10,6 +10,9 @@ justamente ele que liga um caderno ao outro, e onde um conceito aparece em dois
 cadernos é a informação mais interessante que ele tem. Restringir o grafo ao
 caderno esconderia isso. E toda menção diz de qual caderno veio, então nada fica
 sem procedência.
+
+A exceção é a ferramenta do F6, `ligar_por_similaridade`, que vem presa ao caderno:
+ela embeda e liga os conceitos de UM caderno, e sem saber qual não há o que fazer.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from typing import Any
 from langchain_core.tools import BaseTool, tool
 
 from ... import db, knowledge
+from .. import embed, oficina
 
 LIMITE_CONCEITOS = 15
 LIMITE_VIZINHOS = 25
@@ -85,9 +89,14 @@ def ferramentas_de_grafo() -> list[BaseTool]:
         """O que se liga a este conceito, com o trecho que sustenta cada ligação.
 
         É a ferramenta que responde "com o que isso se relaciona?" **a partir do
-        que já foi registrado**, e não de memória. As ligações marcadas como
-        `afirmada` trazem o trecho de origem; as de `co-ocorrência` significam
-        apenas que os dois apareceram no mesmo trecho do material.
+        que já foi registrado**, e não de memória. As ligações vêm em três famílias,
+        e a diferença importa para o que você pode afirmar:
+
+        - `afirmada` — o material disse, e há trecho de origem. É a única que você
+          pode apresentar como afirmação do material;
+        - `co-ocorrência` — os dois apareceram juntos no mesmo trecho do material;
+        - `igual a`/`parecido` (similaridade) — **inferida** pelo app a partir dos
+          vetores, sem trecho nenhum. Diga que é uma aproximação, nunca uma afirmação.
         """
         if not (conceito or "").strip():
             return "Informe o conceito."
@@ -112,14 +121,28 @@ def ferramentas_de_grafo() -> list[BaseTool]:
             "",
         ]
 
-        vizinhos = [v for v in dado["neighbors"] if v["kind"] != knowledge.CO_OCORRENCIA]
+        afirmadas = [v for v in dado["neighbors"] if v["kind"] == knowledge.EXPLICITA]
+        inferidas = [v for v in dado["neighbors"] if v["kind"] == knowledge.SIMILARIDADE]
         coocorrencia = [v for v in dado["neighbors"] if v["kind"] == knowledge.CO_OCORRENCIA]
 
-        if vizinhos:
-            linhas.append(f"Ligações afirmadas pelo material ({len(vizinhos)}):")
-            for vizinho in vizinhos[:LIMITE_VIZINHOS]:
+        if afirmadas:
+            linhas.append(f"Ligações afirmadas pelo material ({len(afirmadas)}):")
+            for vizinho in afirmadas[:LIMITE_VIZINHOS]:
                 origem = _recorte(vizinho["provenance"], 200)
                 linhas.append(f'- {vizinho["concept"]["name"]} — {origem}')
+            linhas.append("")
+
+        if inferidas:
+            # A nota vai junto porque é ela que a pessoa (e o modelo) podem ponderar:
+            # 0,81 e 0,96 são coisas bem diferentes quando o assunto é "parece o mesmo".
+            nomes = ", ".join(
+                f'{v["concept"]["name"]} ({float(v.get("score") or 0):.2f})'
+                for v in inferidas[:LIMITE_VIZINHOS]
+            )
+            linhas.append(
+                f"Parecidos por similaridade ({len(inferidas)}) — **inferido pelo app a "
+                f"partir dos vetores, sem trecho que sustente**: {nomes}"
+            )
             linhas.append("")
 
         if coocorrencia:
@@ -185,3 +208,59 @@ def ferramentas_de_grafo() -> list[BaseTool]:
         return f'Registrei: {de} — {para}, sustentado por "{_recorte(trecho, 160)}".'
 
     return [buscar_no_grafo, vizinhanca_do_conceito, registrar_relacao]
+
+
+def ferramentas_de_similaridade(notebook_id: str) -> list[BaseTool]:
+    """A ligação por similaridade, presa ao caderno (F6/D065).
+
+    Presa, e não global como as três acima, por um motivo prático: ela embeda os
+    conceitos de UM caderno e escreve arestas entre eles — sem saber de qual caderno
+    é, não há o que fazer. E a ferramenta não recebe `notebook_id` por parâmetro
+    (D034): quem já sabe é quem a construiu.
+    """
+
+    @tool
+    async def ligar_por_similaridade() -> str:
+        """Liga conceitos que falam da mesma coisa, por comparação de vetores (F6).
+
+        Serve para achar o que o material NÃO ligou: dois conceitos que nunca
+        apareceram juntos num trecho e que ninguém afirmou serem relacionados, mas
+        que tratam do mesmo assunto. Também levanta os pares que parecem ser o MESMO
+        conceito — duplicatas que a pessoa pode mesclar.
+
+        Custa chamadas de embedding (uma por conceito que ainda não tem vetor), então
+        é ação explícita: use quando a pessoa pedir "liga os parecidos", "acha
+        duplicatas" ou "aproxima os conceitos". A segunda vez em diante é de graça —
+        o vetor já está guardado.
+
+        A ligação que ela cria é **inferida**, e não afirmação do material: não tem
+        trecho que a sustente. Ao falar dela, diga que é uma aproximação.
+        """
+        try:
+            embed.atual()
+        except embed.EmbeddingNaoConfigurado as exc:
+            # Tentar montar o modelo é a única checagem de "está configurado?" que não
+            # mente: ela usa o mesmo caminho que o trabalho vai usar. Uma checagem
+            # paralela (ler a config e decidir) divergiria dela um dia, e no dia da
+            # divergência o agente dispararia um trabalho que já nasce falhando.
+            return (
+                f"{exc} Não invente a ligação por conta própria: proximidade de assunto "
+                "não é relação."
+            )
+
+        ja_em_curso = oficina.oficina.em_curso(notebook_id, oficina.SIMILARIDADE)
+        run = oficina.oficina.iniciar(
+            notebook_id, trabalho=oficina.SIMILARIDADE, origem="agente"
+        )
+        if ja_em_curso is not None:
+            return (
+                f"Já havia uma ligação por similaridade em andamento (id {run.id}), e ela "
+                "continua — não disparei outra. O resultado aparece no painel do grafo."
+            )
+        return (
+            f"Ligação por similaridade iniciada (id {run.id}). Os números saem no painel "
+            "do grafo quando terminar. Não repita o resultado aqui: o desenho mostra "
+            "melhor do que uma lista."
+        )
+
+    return [ligar_por_similaridade]

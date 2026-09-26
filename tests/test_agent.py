@@ -50,6 +50,9 @@ def test_o_catalogo_do_caderno_tem_leitura_e_web():
         "cards_para_revisar",
         # a de artefato (F5), presa pelo mesmo motivo: documento é de UM caderno
         "compilar_documento",
+        # a de similaridade (F6), presa também: ela embeda e liga os conceitos de UM
+        # caderno, e sem saber qual não há o que fazer
+        "ligar_por_similaridade",
     }
 
 

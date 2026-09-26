@@ -50,6 +50,15 @@ Mapeamento dos conceitos:
 | Chat           | streaming (SSE) do agente, traduzido em `engine/agent.py`    |
 | Outputs        | documento Markdown salvo; o compilado sai do grafo, não do modelo |
 | Modelo + chave | `data/model.json` (0600) ou `LLM_AGENT` no `.env`            |
+| Embeddings     | mesmo arquivo (`embed_*`), opcional — só para as arestas por similaridade |
+
+As **arestas por similaridade** (F6) são a única coisa do grafo que o app **infere** em vez
+de ler do material: ele vetoriza cada conceito (nome + trechos) e liga o que fala da mesma
+coisa **sem o material ter ligado**. Por isso a inferida nunca se disfarça de afirmação —
+traço tracejado, etiqueta lilás dizendo a nota ("parecido 87%") e procedência
+`inferida por <modelo>`. O limiar foi medido no material real, não escolhido: com cosseno de
+mediana 0,56 neste domínio, só o topo da distribuição informa. E o vetor é guardado com o
+modelo e o texto que o produziram, então rodar de novo é instantâneo.
 
 ## Requisitos
 
@@ -168,14 +177,31 @@ inicial e fica em `data/model.json`. O resto está em `.env.example`:
 | Variável | Padrão | Para que serve |
 |---|---|---|
 | `LLM_AGENT` | — | configuração do modelo pelo `.env` (alternativa à UI) |
+| `LLM_EMBED` | — | o modelo de **embedding** pelo `.env` (opcional; o mesmo formato `openai\|url\|modelo\|chave`) |
 | `FRUTIGER_DATA_DIR` | `./data` | banco, arquivos das fontes e a config do modelo |
 | `FRUTIGER_PORT` | `8765` | porta do app |
 | `FRUTIGER_INLINE_LIMIT` | `24000` | quando parar de inlinar e passar a usar as ferramentas |
 
 > `data/` contém a sua chave de API. Não versione nem compartilhe esse diretório.
 
-Os modelos de embedding (`LLM_EMBED`, para as arestas por similaridade da F6)
-entram quando essa fase chegar.
+O **embedding é opcional** e o app diz isso em vez de fingir: sem ele tudo funciona, só não
+há arestas por similaridade (o botão explica o que falta em vez de falhar em silêncio). Ele
+é configurado no mesmo modal, no bloco "Embeddings", com um botão de testar que devolve a
+dimensão do vetor. E ele **não precisa ser o mesmo provedor do chat**: a DeepSeek, por
+exemplo, não oferece embeddings — quem quer a fase usa um servidor local:
+
+```bash
+# llama.cpp servindo um modelo de embedding, do jeito que foi provado aqui
+llama-server --embeddings --pooling mean \
+  --model nomic-embed-text-v1.5.Q4_K_M.gguf --port 8080 --ctx-size 4096
+# e no modal: http://127.0.0.1:8080/v1 · nomic-embed-text-v1.5 · (sem chave)
+```
+
+O bloco de embedding tem uma pitfall de cliente que vale saber, porque o erro acusa o
+modelo errado: o cliente do LangChain, por padrão, tokeniza o texto **com o tokenizador da
+OpenAI** e manda IDs no lugar do texto — servidor local devolve
+`400 Prompt contains invalid tokens`. O app já manda texto
+(`check_embedding_ctx_length=False`); se você escrever um cliente seu, mande texto.
 
 ## Multi-usuário
 

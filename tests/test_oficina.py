@@ -144,7 +144,7 @@ def test_o_run_existe_fora_de_quem_pediu_e_entrega_o_historico_a_quem_chega_atra
     dados = com_grafo()
 
     async def cenario() -> list[dict]:
-        run = oficina.oficina.iniciar(dados["nb"], origem="botao", modelo=extrator())
+        run = oficina.oficina.iniciar(dados["nb"], parametros={"modelo": extrator()})
         await oficina.oficina.esperar(run.id)
         # Ninguém estava escutando quando o run rodou. Agora alguém chega.
         return [item async for item in oficina.oficina.acompanhar(run.id)]
@@ -152,11 +152,13 @@ def test_o_run_existe_fora_de_quem_pediu_e_entrega_o_historico_a_quem_chega_atra
     eventos = asyncio.run(cenario())
     nomes = [item["evento"] for item in eventos]
 
-    assert nomes[0] == "compilando.passo"
-    assert "output.completed" in nomes
+    assert nomes[0] == "trabalho.passo"
+    assert "trabalho.pronto" in nomes
     assert nomes[-1] == "done"
-    assert "Conceitos do material" in eventos[nomes.index("output.completed")]["dados"]["content_md"]
-    passos = [item["dados"]["mensagem"] for item in eventos if item["evento"] == "compilando.passo"]
+    pronto = eventos[nomes.index("trabalho.pronto")]["dados"]
+    assert "Conceitos do material" in pronto["output"]["content_md"]
+    assert pronto["resultado"]["contagem"]["grafo"] > 0, "o run devolve os números do documento"
+    passos = [item["dados"]["mensagem"] for item in eventos if item["evento"] == "trabalho.passo"]
     assert passos, "o acompanhamento não trouxe nenhum passo"
     assert all(p for p in passos), "passo sem mensagem não informa nada"
 
@@ -187,8 +189,8 @@ def test_dois_pedidos_seguidos_acompanham_a_MESMA_compilacao():
     extrator_unico = extrator()
 
     async def cenario() -> tuple[str, str]:
-        primeiro = oficina.oficina.iniciar(dados["nb"], modelo=extrator_unico)
-        segundo = oficina.oficina.iniciar(dados["nb"], modelo=extrator_unico)
+        primeiro = oficina.oficina.iniciar(dados["nb"], parametros={"modelo": extrator_unico})
+        segundo = oficina.oficina.iniciar(dados["nb"], parametros={"modelo": extrator_unico})
         await oficina.oficina.esperar(primeiro.id)
         return primeiro.id, segundo.id
 
@@ -203,7 +205,7 @@ def test_a_ferramenta_avisa_quando_ja_havia_compilacao_em_curso():
     dados = com_grafo()
 
     async def cenario() -> str:
-        oficina.oficina.iniciar(dados["nb"], modelo=extrator(pausa=0.05))
+        oficina.oficina.iniciar(dados["nb"], parametros={"modelo": extrator(pausa=0.05)})
         return await ferramentas_de_artefatos(dados["nb"])[0].ainvoke({})
 
     resposta = asyncio.run(cenario())
@@ -241,7 +243,7 @@ def test_a_lista_de_runs_nao_mistura_cadernos():
     b = com_grafo()["nb"]
 
     async def cenario() -> None:
-        oficina.oficina.iniciar(a, modelo=extrator())
+        oficina.oficina.iniciar(a, parametros={"modelo": extrator()})
         await asyncio.sleep(0)
 
     asyncio.run(cenario())
@@ -268,18 +270,18 @@ def test_disparar_e_acompanhar_pelas_rotas(cliente, monkeypatch):
     assert run["notebook_id"] == dados["nb"]
     assert run["origem"] == "botao"
 
-    stream = cliente.get(f"/api/artefatos/{run['id']}")
+    stream = cliente.get(f"/api/trabalhos/{run['id']}")
     assert stream.status_code == 200
     corpo = stream.text
-    assert "event: compilando.passo" in corpo
-    assert "event: output.completed" in corpo
-    assert corpo.index("event: compilando.passo") < corpo.index("event: output.completed")
+    assert "event: trabalho.passo" in corpo
+    assert "event: trabalho.pronto" in corpo
+    assert corpo.index("event: trabalho.passo") < corpo.index("event: trabalho.pronto")
     assert "event: done" in corpo, "o stream precisa fechar o run"
     assert json.loads(corpo.rstrip().split("data: ")[-1])["estado"] == "pronto"
 
     # o documento ficou gravado, e a lista de artefatos conta a história dele
     assert len(db.list_outputs(dados["nb"])) == 1
-    lista = cliente.get(f"/api/artefatos?notebook_id={dados['nb']}").json()
+    lista = cliente.get(f"/api/trabalhos?notebook_id={dados['nb']}").json()
     assert [r["id"] for r in lista] == [run["id"]]
     assert lista[0]["estado"] == "pronto"
     assert lista[0]["output_id"] is not None
@@ -291,7 +293,7 @@ def test_o_documento_compilado_pela_rota_e_imprimivel(cliente, monkeypatch):
     monkeypatch.setattr(llm, "atual", lambda: extrator())
 
     run_id = cliente.post(f"/api/notebooks/{dados['nb']}/compilar").json()["id"]
-    cliente.get(f"/api/artefatos/{run_id}")
+    cliente.get(f"/api/trabalhos/{run_id}")
 
     saida = db.list_outputs(dados["nb"])[0]
     assert cliente.get(f"/api/outputs/{saida['id']}").status_code == 200
@@ -299,7 +301,7 @@ def test_o_documento_compilado_pela_rota_e_imprimivel(cliente, monkeypatch):
 
 
 def test_acompanhar_run_inexistente_e_404(cliente):
-    assert cliente.get("/api/artefatos/run_fantasma").status_code == 404
+    assert cliente.get("/api/trabalhos/run_fantasma").status_code == 404
 
 
 def test_compilar_caderno_inexistente_e_404(cliente):
@@ -313,12 +315,13 @@ def test_o_disparo_sem_modelo_nao_gasta_chamada(cliente, monkeypatch):
     monkeypatch.setattr(llm, "atual", lambda: extrator_espiao)
 
     run = cliente.post(f"/api/notebooks/{dados['nb']}/compilar?sem_modelo=true").json()
-    corpo = cliente.get(f"/api/artefatos/{run['id']}").text
+    corpo = cliente.get(f"/api/trabalhos/{run['id']}").text
 
     assert extrator_espiao.chamadas == [], "gastou chamada de modelo com sem_modelo=true"
-    assert "event: output.completed" in corpo
-    contagem = json.loads(
-        [linha for linha in corpo.splitlines() if '"contagem"' in linha][0][5:]
-    )["contagem"]
+    assert "event: trabalho.pronto" in corpo
+    evento = json.loads([linha for linha in corpo.splitlines() if '"contagem"' in linha][0][5:])
+    contagem = evento["resultado"]["contagem"]
     assert contagem["modelo"] == 0, "as duas seções de texto do modelo entraram sem modelo"
     assert contagem["grafo"] > 0, "as seções de grafo não entraram"
+    assert evento["resultado"]["secoes"] > 0
+

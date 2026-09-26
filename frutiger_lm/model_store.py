@@ -21,6 +21,7 @@ import os
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from .config import settings
 
@@ -37,32 +38,72 @@ PRESETS: dict[str, tuple[str, str]] = {
 
 _LOCAIS = ("127.0.0.1", "localhost", "0.0.0.0", "::1")
 
+# Sugestão de modelo de embedding por provedor. Vazio onde não há como saber: num
+# servidor local o nome é o do modelo que está carregado. A DeepSeek não está na
+# lista de propósito — ela não oferece endpoint de embedding, e sugerir um nome ali
+# só faria a pessoa perder tempo.
+PRESETS_EMBED: dict[str, str] = {
+    "openai": "text-embedding-3-small",
+    "lmstudio": "text-embedding-nomic-embed-text-v1.5",
+}
+
+
+def precisa_de_chave(base_url: str) -> bool:
+    """Endereço local não pede chave — é o caso do LM Studio / llama.cpp."""
+    return not any(host in (base_url or "") for host in _LOCAIS)
+
 
 @dataclass
 class ModelConfig:
-    """O que o motor precisa para falar com um modelo."""
+    """O que o motor precisa para falar com um modelo.
+
+    São **dois** modelos, e por isso dois blocos de campos: o de conversa (o agente,
+    os documentos) e o de embedding (o F6, que só produz vetores). O de embedding é
+    opcional — sem ele o app funciona inteiro, menos as arestas por similaridade.
+
+    Os dois moram no MESMO arquivo por causa da regra de instância (D030): um
+    diretório de dados é uma instância, e um segundo arquivo de segredo seria uma
+    segunda coisa a lembrar de não compartilhar.
+    """
 
     base_url: str = ""
     model: str = ""
     api_key: str = ""
     temperature: float = 0.2
+    embed_base_url: str = ""
+    embed_model: str = ""
+    embed_api_key: str = ""
 
     @property
     def precisa_de_chave(self) -> bool:
-        """Endereço local não pede chave — é o caso do LM Studio / llama.cpp."""
-        return not any(host in self.base_url for host in _LOCAIS)
+        return precisa_de_chave(self.base_url)
+
+    @property
+    def embed_precisa_de_chave(self) -> bool:
+        return precisa_de_chave(self.embed_base_url)
 
     @property
     def configurado(self) -> bool:
         return not faltando(self)
 
+    @property
+    def embed_configurado(self) -> bool:
+        return not faltando_embed(self)
+
     def dica_da_chave(self) -> str:
         """Máscara para a UI: nunca o valor, só o suficiente para reconhecer."""
-        if not self.api_key:
-            return ""
-        if len(self.api_key) <= 8:
-            return "•" * len(self.api_key)
-        return f"{self.api_key[:4]}{'•' * 6}{self.api_key[-4:]}"
+        return _mascara(self.api_key)
+
+    def dica_da_chave_embed(self) -> str:
+        return _mascara(self.embed_api_key)
+
+
+def _mascara(chave: str) -> str:
+    if not chave:
+        return ""
+    if len(chave) <= 8:
+        return "•" * len(chave)
+    return f"{chave[:4]}{'•' * 6}{chave[-4:]}"
 
 
 def faltando(cfg: ModelConfig) -> list[str]:
@@ -79,6 +120,25 @@ def faltando(cfg: ModelConfig) -> list[str]:
     if not cfg.model:
         falta.append("modelo")
     if cfg.precisa_de_chave and not cfg.api_key:
+        falta.append("chave da API")
+    return falta
+
+
+def faltando_embed(cfg: ModelConfig) -> list[str]:
+    """O mesmo rigor para o modelo de embedding (F6).
+
+    Endereço e modelo são obrigatórios quando a pessoa começa a configurar o
+    embedding; sem nada preenchido, o recurso simplesmente não existe — e a tela diz
+    isso em vez de falhar no meio do cálculo.
+    """
+    if not cfg.embed_base_url and not cfg.embed_model:
+        return ["endereço", "modelo"]
+    falta = []
+    if not cfg.embed_base_url:
+        falta.append("endereço")
+    if not cfg.embed_model:
+        falta.append("modelo")
+    if cfg.embed_precisa_de_chave and not cfg.embed_api_key:
         falta.append("chave da API")
     return falta
 
@@ -118,7 +178,7 @@ def save(cfg: ModelConfig) -> None:
 
 
 def masked() -> dict:
-    """O que a UI pode ver. Note: sem a chave, por construção (regra 1)."""
+    """O que a UI pode ver. Note: sem as chaves, por construção (regra 1)."""
     cfg = load()
     return {
         "configured": cfg.configurado,
@@ -129,6 +189,15 @@ def masked() -> dict:
         "key_hint": cfg.dica_da_chave(),
         "needs_key": cfg.precisa_de_chave,
         "presets": {nome: {"base_url": url, "model": mod} for nome, (url, mod) in PRESETS.items()},
+        # O bloco do embedding (F6), pelo MESMO contrato: a chave nunca sai daqui.
+        "embed_configured": cfg.embed_configurado,
+        "embed_base_url": cfg.embed_base_url,
+        "embed_model": cfg.embed_model,
+        "embed_has_key": bool(cfg.embed_api_key),
+        "embed_key_hint": cfg.dica_da_chave_embed(),
+        "embed_needs_key": cfg.embed_precisa_de_chave,
+        "embed_presets": PRESETS_EMBED,
+        "embed_faltando": faltando_embed(cfg) if cfg.embed_configurado else [],
     }
 
 
@@ -137,6 +206,10 @@ def montar(
     model: str,
     api_key: str | None,
     temperature: float | None,
+    *,
+    embed_base_url: str | None = None,
+    embed_model: str | None = None,
+    embed_api_key: str | None = None,
 ) -> ModelConfig:
     """Monta a config a partir do formulário, **sem gravar**.
 
@@ -145,7 +218,11 @@ def montar(
 
     ``api_key=None`` significa "não mexi no campo" e preserva a chave que já
     estava salva — sem isso, salvar o formulário com o campo mascarado apagaria
-    a chave do usuário.
+    a chave do usuário. Vale igual para a chave do embedding (F6).
+
+    O endereço e o modelo do embedding são strings comuns (o formulário manda o que
+    está lá): campo apagado é pedido explícito de tirar o embedding. Já a chave,
+    não — ela volta mascarada, e vazia significa "não mexi".
     """
     atual = load()
     return ModelConfig(
@@ -153,6 +230,13 @@ def montar(
         model=(model or "").strip(),
         api_key=atual.api_key if api_key is None else str(api_key).strip(),
         temperature=atual.temperature if temperature is None else float(temperature),
+        embed_base_url=(
+            atual.embed_base_url if embed_base_url is None else embed_base_url.strip().rstrip("/")
+        ),
+        embed_model=(atual.embed_model if embed_model is None else embed_model.strip()),
+        embed_api_key=(
+            atual.embed_api_key if embed_api_key is None else str(embed_api_key).strip()
+        ),
     )
 
 
@@ -161,11 +245,24 @@ def apply(
     model: str,
     api_key: str | None,
     temperature: float | None,
+    **extras: Any,
 ) -> ModelConfig:
     """Conveniência: montar e gravar. Use `montar` quando precisar validar antes."""
-    cfg = montar(base_url, model, api_key, temperature)
+    cfg = montar(base_url, model, api_key, temperature, **extras)
     save(cfg)
     return cfg
+
+
+def _spec(prefixo: str) -> ModelConfig | None:
+    """Lê o formato `openai|<base_url>|<modelo>|<chave>` de uma variável de ambiente."""
+    bruto = os.environ.get(prefixo, "").strip()
+    if not bruto:
+        return None
+    partes = [p.strip() for p in bruto.split("|")]
+    if len(partes) < 3:
+        return None
+    _, base_url, model, *resto = partes
+    return ModelConfig(base_url=base_url, model=model, api_key=(resto[0] if resto else ""))
 
 
 def spec_do_env() -> ModelConfig | None:
@@ -175,11 +272,15 @@ def spec_do_env() -> ModelConfig | None:
     O prefixo ``openai`` existe para deixar espaço a outros protocolos sem
     quebrar o formato depois.
     """
-    bruto = os.environ.get("LLM_AGENT", "").strip()
-    if not bruto:
-        return None
-    partes = [p.strip() for p in bruto.split("|")]
-    if len(partes) < 3:
-        return None
-    _, base_url, model, *resto = partes
-    return ModelConfig(base_url=base_url, model=model, api_key=(resto[0] if resto else ""))
+    return _spec("LLM_AGENT")
+
+
+def spec_embed_do_env() -> ModelConfig | None:
+    """O mesmo, para o modelo de embedding (F6): ``LLM_EMBED=openai|<url>|<modelo>|<chave>``.
+
+    Devolve a config no campo do CONVERSATION de propósito, e não no do embedding:
+    quem chama (`engine/embed.py`) quer saber qual modelo usar para embedar, e o nome
+    do bloco é um detalhe de armazenamento. Assim as duas fontes de config (UI e .env)
+    chegam ao mesmo lugar antes de virar modelo.
+    """
+    return _spec("LLM_EMBED")

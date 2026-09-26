@@ -141,6 +141,42 @@ CREATE TABLE IF NOT EXISTS source_usage (
 CREATE INDEX IF NOT EXISTS idx_cards_notebook ON cards(notebook_id);
 CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due_at);
 CREATE INDEX IF NOT EXISTS idx_source_usage_source ON source_usage(source_id);
+
+-- --------------------------------------------------------------------------
+-- Os vetores dos conceitos (F6). O vetor NÃO vem sozinho: ele guarda de qual
+-- MODELO e de qual TEXTO saiu (D062). Espaço de vetor é do modelo — comparar
+-- vetores de modelos diferentes dá um número plausível e sem sentido — e o texto
+-- muda quando a extração roda de novo. Guardados os dois, a resposta é
+-- recomputar em vez de comparar o que não é comparável.
+-- --------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS embeddings (
+    concept_id  TEXT PRIMARY KEY REFERENCES concepts(id) ON DELETE CASCADE,
+    model       TEXT NOT NULL,
+    texto_hash  TEXT NOT NULL,
+    dim         INTEGER NOT NULL,
+    vetor       BLOB NOT NULL,          -- float32 empacotado (struct), não JSON
+    created_at  REAL NOT NULL
+);
+
+-- --------------------------------------------------------------------------
+-- As SUSPEITAS de duplicata (F6/D066): pares de conceitos muito parecidos entre si.
+--
+-- Tabela própria, e não aresta, por um motivo que a medição no material real impôs: a
+-- aresta de similaridade NÃO entra onde já existe ligação (D063), e os pares mais
+-- parecidos são justamente os que já se ligam (compartilham a mesma frase de origem).
+-- Guardados os dois na mesma tabela, a pergunta "estes dois são o mesmo conceito?"
+-- ficaria invisível exatamente nos casos em que ela mais importa.
+-- --------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS suspeitas (
+    a_id        TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+    b_id        TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+    score       REAL NOT NULL,
+    model       TEXT NOT NULL,
+    created_at  REAL NOT NULL,
+    PRIMARY KEY (a_id, b_id)
+);
 """
 
 
@@ -164,6 +200,14 @@ def _migrar(conn: sqlite3.Connection) -> None:
         # a sessão do Hermes morreu com o motor próprio: o histórico agora é o
         # thread do checkpointer (D019)
         conn.execute("ALTER TABLE notebooks DROP COLUMN hermes_session_id")
+
+    # `score REAL` em `edges` (D064). Peso é CONTAGEM (quantas vezes dois conceitos
+    # apareceram juntos); similaridade é uma NOTA entre 0 e 1. Numa coluna INTEGER a
+    # nota perderia a parte decimal — 0,83 viraria 1 — e com ela a única informação
+    # que aquela aresta carrega.
+    colunas_edges = {linha["name"] for linha in _rows(conn.execute("PRAGMA table_info(edges)"))}
+    if "score" not in colunas_edges:
+        conn.execute("ALTER TABLE edges ADD COLUMN score REAL NOT NULL DEFAULT 0")
 
 
 def init_db() -> None:

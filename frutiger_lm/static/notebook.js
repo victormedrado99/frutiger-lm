@@ -411,22 +411,33 @@
   }
 
   function eventoDaCompilacao(nome, dados) {
-    if (nome === "compilando.passo") {
+    if (nome === "trabalho.passo") {
       passosDaCompilacao.push("· " + dados.mensagem);
       pintarCompilacao("");
-    } else if (nome === "output.completed") {
-      var c = dados.contagem || {};
+    } else if (nome === "trabalho.pronto") {
+      var r = dados.resultado || {};
+      if (dados.output) {
+        var c = r.contagem || {};
+        pintarCompilacao(
+          "<b>Pronto:</b> " + r.secoes + " seções — " +
+          (c.grafo || 0) + " do grafo, " + (c.banco || 0) + " do banco e " +
+          (c.modelo || 0) + " do modelo.<br>" +
+          '<a href="#" id="abrir-compilado">Abrir o documento</a>'
+        );
+        document.getElementById("abrir-compilado").addEventListener("click", function (ev) {
+          ev.preventDefault();
+          showOutput(dados.output.id, dados.output.title, dados.output.content_md);
+        });
+        loadOutputs();
+        return;
+      }
+      // Trabalho que não gera documento (as arestas por similaridade, F6): o painel
+      // não tem o que abrir — só dizer o que aconteceu e onde olhar.
       pintarCompilacao(
-        "<b>Pronto:</b> " + dados.secoes + " seções — " +
-        (c.grafo || 0) + " do grafo, " + (c.banco || 0) + " do banco e " +
-        (c.modelo || 0) + " do modelo.<br>" +
-        '<a href="#" id="abrir-compilado">Abrir o documento</a>'
+        "<b>Pronto:</b> " + (r.arestas || 0) + " ligação(ões) por similaridade em " +
+        (r.conceitos || 0) + " conceito(s). " +
+        "Veja no <b>Grafo</b>, na tela dos cadernos."
       );
-      document.getElementById("abrir-compilado").addEventListener("click", function (ev) {
-        ev.preventDefault();
-        showOutput(dados.id, dados.title, dados.content_md);
-      });
-      loadOutputs();
     } else if (nome === "error") {
       pintarCompilacao('<span style="color:var(--danger)">' + C.escapeHtml(dados.message) + "</span>");
     }
@@ -443,7 +454,7 @@
     passosDaCompilacao = [];
     pintarCompilacao("");
     try {
-      var resp = await C.stream("/api/artefatos/" + runId);
+      var resp = await C.stream("/api/trabalhos/" + runId);
       await C.readSSE(resp, eventoDaCompilacao);
     } catch (err) {
       pintarCompilacao('<span style="color:var(--danger)">' + C.escapeHtml(err.message) + "</span>");
@@ -462,7 +473,7 @@
   async function procurarCompilacao() {
     if (runSeguido) return;
     try {
-      var runs = await C.api("/api/artefatos?notebook_id=" + encodeURIComponent(NB_ID));
+      var runs = await C.api("/api/trabalhos?notebook_id=" + encodeURIComponent(NB_ID));
       var emCurso = (runs || []).filter(function (r) { return r.estado === "rodando"; })[0];
       if (!emCurso) return;
       await acompanharCompilacao(emCurso.id);

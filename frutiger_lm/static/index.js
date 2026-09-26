@@ -36,6 +36,9 @@
         : "Nenhum caderno ainda.";
       guardarCadernos(notebooks);
       carregarGrafo();
+      // Uma ligação por similaridade pode ter sido disparada pelo CHAT de um caderno —
+      // um run que esta aba não vê nascer. Perguntar na abertura é o que a retoma.
+      retomarSimilaridade();
     } catch (err) {
       subtitle.textContent = "Erro ao carregar: " + err.message;
       C.toast(err.message, "err");
@@ -182,6 +185,20 @@
       }
 
       el("md-result").hidden = true;
+
+      /* O bloco de embeddings (F6). Mesma disciplina da chave do chat (D030): o campo
+         sai vazio com a dica ao lado, e vazio significa "não mexi". A dica também diz
+         se está configurado — é o que separa "eu configurei" de "eu acho que sim". */
+      el("md-embed-url").value = s.embed_base_url || "";
+      el("md-embed-model").value = s.embed_model || "";
+      el("md-embed-key").value = "";
+      el("md-embed-key").placeholder = s.embed_has_key
+        ? "deixe em branco para manter a salva"
+        : "(local não precisa)";
+      el("md-embed-estado").textContent = s.embed_configured
+        ? "(configurado: " + (s.embed_key_hint ? "chave salva " + s.embed_key_hint : "sem chave") + ")"
+        : "(opcional, não configurado)";
+
       C.openModal("modal-model");
       setTimeout(function () { el("md-url").focus(); }, 40);
     } catch (err) { C.toast(err.message, "err"); }
@@ -198,10 +215,17 @@
     var corpo = {
       base_url: el("md-url").value.trim(),
       model: el("md-model").value.trim(),
-      temperature: parseFloat(el("md-temp").value)
+      temperature: parseFloat(el("md-temp").value),
+      // Os campos do embedding vão SEMPRE, inclusive vazios: aqui vazio é um pedido
+      // explícito de tirar o embedding (é o que a rota entende). Só a CHAVE segue a
+      // regra do "ausente = preserva" — ela volta mascarada do servidor.
+      embed_base_url: el("md-embed-url").value.trim(),
+      embed_model: el("md-embed-model").value.trim(),
     };
     var digitada = el("md-key").value.trim();
     if (digitada) corpo.api_key = digitada;  // ausente = preserva a chave salva
+    var digitadaEmbed = el("md-embed-key").value.trim();
+    if (digitadaEmbed) corpo.embed_api_key = digitadaEmbed;
     return corpo;
   }
 
@@ -238,6 +262,26 @@
     btn.disabled = false;
   }
 
+  async function testarEmbeddings() {
+    var btn = el("btn-test-embed");
+    var caixa = el("md-result");
+    btn.disabled = true;
+    caixa.hidden = false;
+    caixa.className = "out-item";
+    caixa.innerHTML = '<span class="spinner"></span> pedindo um vetor ao modelo de embeddings…';
+    try {
+      await C.api("/api/settings/model", { method: "POST", body: corpoDoModelo() });
+      var r = await C.api("/api/settings/embed/test", { method: "POST" });
+      caixa.className = "out-item ok-box";
+      caixa.innerHTML = "✓ <b>" + C.escapeHtml(r.model) + "</b> respondeu " +
+        C.escapeHtml(r.reply || "") + ". As arestas por similaridade já podem ser ligadas.";
+    } catch (err) {
+      caixa.className = "out-item err-box";
+      caixa.innerHTML = "✕ " + C.escapeHtml(err.message);
+    }
+    btn.disabled = false;
+  }
+
   el("btn-model").addEventListener("click", openModel);
   el("md-preset").addEventListener("change", aplicarPreset);
   el("md-temp").addEventListener("input", function () {
@@ -245,6 +289,7 @@
   });
   el("btn-save-model").addEventListener("click", salvarModelo);
   el("btn-test-model").addEventListener("click", testarModelo);
+  el("btn-test-embed").addEventListener("click", testarEmbeddings);
   ["md-url", "md-model", "md-key"].forEach(function (id) {
     el(id).addEventListener("keydown", function (ev) { if (ev.key === "Enter") salvarModelo(); });
   });
@@ -343,6 +388,11 @@
     vazio: document.getElementById("grafo-vazio"),
     busca: document.getElementById("grafo-busca"),
     principais: document.getElementById("grafo-principais"),
+    similares: document.getElementById("grafo-similares"),
+    similaresLabel: document.getElementById("grafo-similares-label"),
+    btnSimilaridade: document.getElementById("btn-similaridade"),
+    progressoSim: document.getElementById("similaridade-progresso"),
+    parecidos: document.getElementById("grafo-parecidos"),
   };
 
   /* Peso mínimo das co-ocorrências, e o número veio do material real.
@@ -395,13 +445,21 @@
     // O filtro é de CONCEITO: no mapa de cadernos não há o que filtrar.
     var etiqueta = grafoUI.principais.closest("label");
     if (etiqueta) etiqueta.hidden = mapa;
+    // O interruptor das inferidas só existe se houver inferidas — e o botão de ligar
+    // só faz sentido dentro de um caderno (o mapa não tem conceitos para comparar).
+    grafoUI.similaresLabel.hidden = mapa || !dados.similaridades;
+    grafoUI.btnSimilaridade.hidden = mapa;
+    // O número das inferidas fica no quadro: é ele que o interruptor usa para dizer
+    // quantas linhas saíram do desenho quando a pessoa o desliga (D056).
+    grafoUI.canvas.dataset.similares = dados.similaridades || 0;
     grafoUI.canvas.title = mapa
       ? "Cada bolha é um caderno — o tamanho é quantos conceitos ele tem. A linha liga dois " +
         "cadernos que dividem um conceito, e a grossura é quantos. Clique numa bolha para " +
         "ver os conceitos dela."
       : "Linha cheia = ligação que o material afirma, com trecho de origem. Pontilhada = dois " +
-        "conceitos que aparecem juntos no mesmo trecho. O tamanho da bolha é quantas vezes o " +
-        "conceito aparece. A aura em volta diz que o conceito também existe em outro caderno.";
+        "conceitos que aparecem juntos no mesmo trecho. Tracejada = parecidos para o app " +
+        "(comparação de vetores: inferido, sem trecho no material). O tamanho da bolha é " +
+        "quantas vezes o conceito aparece, e a aura diz que ele também existe em outro caderno.";
 
     if (!total) {
       grafoUI.canvas.hidden = true;
@@ -438,6 +496,9 @@
       // Com o escopo preso a um caderno não há ilha a desenhar: o grafo é ele.
       cadernoFoco: escopoTitulo || null,
     });
+    // Os candidatos a mesclar são do caderno, não do mapa: perguntar sem escopo traria
+    // pares de outro caderno para uma tela que está mostrando todos.
+    mostrarParecidos(mapa ? null : escopoAtual);
   }
 
   async function carregarGrafo() {
@@ -449,6 +510,9 @@
       parametros.push("notebook_id=" + encodeURIComponent(escopoAtual));
       parametros.push("peso_minimo=" + PESO_MINIMO_PADRAO);
       if (grafoUI.principais.checked) parametros.push("principalmente=1");
+      // Desligar as inferidas tira linha do desenho — e o interruptor diz quantas, no
+      // `title`. Esconder sem avisar seria esconder informação (D056).
+      if (!grafoUI.similares.checked) parametros.push("sem_similaridade=1");
     }
 
     var dados;
@@ -511,6 +575,160 @@
     grafoUI.voltar.hidden = !escopoAtual;
   }
 
+  /* ------------------------------------------- as arestas por similaridade (F6)
+
+     A ligação roda na OFICINA do motor, fora do turno (D065): o botão dispara e segue
+     pelo id — e é o mesmo caminho que acompanha um trabalho nascido no chat. Enquanto
+     roda, os passos aparecem aqui; no fim, os números e, o que importa, os pares que
+     parecem ser o MESMO conceito, com o botão de mesclar que já existe desde o F3. */
+
+  var simSeguido = null;
+  var simPassos = [];
+
+  function pintarSim(extra) {
+    grafoUI.progressoSim.hidden = false;
+    grafoUI.progressoSim.innerHTML =
+      simPassos.map(C.escapeHtml).join("<br>") + (extra ? "<br>" + extra : "");
+  }
+
+  function seguirSimilaridade(runId) {
+    if (simSeguido === runId) return;
+    simSeguido = runId;
+    simPassos = [];
+    C.stream("/api/trabalhos/" + runId)
+      .then(function (resp) {
+        return C.readSSE(resp, function (nome, dados) {
+          if (nome === "trabalho.passo") {
+            simPassos.push("· " + dados.mensagem);
+            pintarSim("");
+          } else if (nome === "trabalho.pronto") {
+            var r = dados.resultado || {};
+            pintarSim(
+              "<b>Pronto:</b> " + r.conceitos + " conceito(s), " +
+              r.calculados + " vetor(es) calculado(s)" +
+              (r.reusados ? " (" + r.reusados + " já estavam prontos)" : "") + ", " +
+              r.arestas + " ligação(ões) por similaridade."
+            );
+            // O desenho e os candidatos são consequência do trabalho — não faz sentido
+            // pedir para a pessoa recarregar a página.
+            if (escopoAtual) carregarGrafo();
+          } else if (nome === "error") {
+            pintarSim('<span style="color:var(--danger)">' + C.escapeHtml(dados.message) + "</span>");
+          }
+        });
+      })
+      .catch(function (err) {
+        pintarSim('<span style="color:var(--danger)">' + C.escapeHtml(err.message) + "</span>");
+      })
+      .then(function () {
+        simSeguido = null;
+        mostrarParecidos(escopoAtual);
+      });
+  }
+
+  async function ligarPorSimilaridade() {
+    if (!escopoAtual) return;
+    grafoUI.btnSimilaridade.disabled = true;
+    simPassos = [];
+    pintarSim("");
+    try {
+      var run = await C.api("/api/notebooks/" + escopoAtual + "/similaridade", { method: "POST" });
+      seguirSimilaridade(run.id);
+    } catch (err) {
+      pintarSim('<span style="color:var(--danger)">' + C.escapeHtml(err.message) + "</span>");
+    } finally {
+      grafoUI.btnSimilaridade.disabled = false;
+    }
+  }
+
+  /* Os pares que se parece DEMAIS (D066). O payoff do F6 num app de estudo não é a
+     linha no desenho: é descobrir que o grafo pode estar contando duas vezes o mesmo
+     conceito.
+
+     A medição no material real obrigou a mudar esta tela, e vale dizer por quê: dos
+     cinco pares acima de 0,96, NENHUM era duplicata. São conceitos diferentes que
+     compartilham a mesma frase de origem — é a frase que os aproxima, não a identidade.
+     Então a lista não tem botão de mesclar: clicar num par abre o conceito, onde os
+     dois aparecem lado a lado e onde o mesclar sempre morou. A sugestão virou convite a
+     OLHAR, e não atalho para uma ação sem volta. */
+  async function mostrarParecidos(notebookId) {
+    if (!notebookId) {
+      grafoUI.parecidos.hidden = true;
+      return;
+    }
+    var lista;
+    try {
+      lista = await C.api("/api/notebooks/" + encodeURIComponent(notebookId) + "/parecidos");
+    } catch (err) {
+      grafoUI.parecidos.hidden = true;
+      return;
+    }
+    if (!lista || !lista.length) {
+      grafoUI.parecidos.hidden = true;
+      return;
+    }
+    grafoUI.parecidos.hidden = false;
+    grafoUI.parecidos.innerHTML =
+      '<div class="parecidos-titulo">' + lista.length +
+      " par(es) muito parecidos " +
+      '<span class="parecidos-nota">o app achou pelo texto — confira se são o MESMO ' +
+      "conceito antes de mesclar. Parecido não é igual: dois conceitos diferentes podem " +
+      "compartilhar a mesma frase de origem.</span></div>" +
+      lista.map(function (p) {
+        return '<div class="parecido" data-a="' + p.a_id + '" title="Abrir ' +
+          C.escapeHtml(p.a_name) + " para comparar com " + C.escapeHtml(p.b_name) + '">' +
+          '<div class="parecido-nomes"><b>' + C.escapeHtml(p.a_name) + "</b> (" +
+          p.a_mentions + " menções) ≈ <b>" + C.escapeHtml(p.b_name) + "</b> (" +
+          p.b_mentions + " menções) " +
+          '<span class="parecidos-nota">' + (p.score * 100).toFixed(1) + "%</span></div></div>";
+      }).join("");
+  }
+
+  grafoUI.parecidos.addEventListener("click", function (ev) {
+    var linha = ev.target.closest(".parecido");
+    if (!linha) return;
+    // Abre o conceito: a comparação e a decisão acontecem lá, com as menções à vista.
+    abrirConceito(linha.dataset.a);
+  });
+
+  grafoUI.btnSimilaridade.addEventListener("click", ligarPorSimilaridade);
+
+  grafoUI.similares.addEventListener("change", function () {
+    // Ao desligar, o interruptor DIZ quantas linhas saíram: nada some calado (D056).
+    var quantas = Number(grafoUI.canvas.dataset.similares || 0);
+    grafoUI.similaresLabel.title = grafoUI.similares.checked
+      ? "Ligações que o app ACHOU parecidas, comparando os vetores dos conceitos. São " +
+        "inferidas: nenhum trecho do material as sustenta. Desmarque para tirá-las do desenho."
+      : quantas + " ligação(ões) inferidas estão fora do desenho.";
+    carregarGrafo();
+  });
+
+  /* Um trabalho de similaridade pode ter nascido no CHAT do caderno: a ferramenta do
+     agente dispara um run que esta aba não vê nascer. Ao abrir a home (ou voltar do
+     caderno), o painel pergunta — e retoma o acompanhamento se ainda estiver rodando. */
+  async function retomarSimilaridade() {
+    if (simSeguido) return;
+    try {
+      var lista = await C.api("/api/trabalhos?trabalho=similaridade");
+      var rodando = (lista || []).filter(function (r) { return r.estado === "rodando"; })[0];
+      if (rodando) {
+        seguirSimilaridade(rodando.id);
+        return;
+      }
+      var pronto = (lista || []).filter(function (r) { return r.estado === "pronto"; })[0];
+      if (pronto && pronto.resultado && pronto.resultado.conceitos) {
+        var r = pronto.resultado;
+        simPassos = [
+          "· último trabalho neste app: " + r.conceitos + " conceito(s) vetorizado(s), " +
+          r.arestas + " ligação(ões) por similaridade.",
+        ];
+        pintarSim("");
+      }
+    } catch (err) {
+      /* sem isto o painel continua utilizável: só não retoma um trabalho em curso */
+    }
+  }
+
   /* ------------------------------------------------------------ o conceito */
 
   function blocoDeMencoes(mencoes) {
@@ -534,14 +752,27 @@
       return "<p style='color:var(--muted);font-size:13px'>Nada ligado a este conceito ainda. " +
         "O material o menciona, mas não o relaciona a outro — e o grafo não inventa ligação.</p>";
     }
-    var ordem = vizinhos.slice().sort(function (a, b) { return b.weight - a.weight; });
+    var ordem = vizinhos.slice().sort(function (a, b) {
+      return ((b.score || 0) + b.weight) - ((a.score || 0) + a.weight);
+    });
     return ordem.map(function (v) {
-      var afirmada = v.kind === "explicit";
-      var prova = afirmada ? v.provenance.replace(/^[^:]*:\s*/, "") : "";
+      /* Três famílias, três etiquetas (D063). A inferida diz que é inferida e diz
+         QUANTO — a nota é a única coisa que a pessoa pode ponderar numa ligação que
+         nenhum trecho sustenta. Etiquetá-la como "afirmada" seria o defeito mais grave
+         possível aqui: a pessoa confiaria nela como se o material tivesse dito. */
+      var etiqueta = "mesmo trecho" + (v.weight > 1 ? " · " + v.weight + "x" : "");
+      var classe = "";
+      var prova = "";
+      if (v.kind === "explicit") {
+        etiqueta = "afirmada";
+        classe = " afirmada";
+        prova = v.provenance.replace(/^[^:]*:\s*/, "");
+      } else if (v.kind === "similarity") {
+        etiqueta = "parecido " + Math.round((v.score || 0) * 100) + "%";
+        classe = " inferida";
+      }
       return '<div class="vizinho">' +
-        '<span class="etiqueta' + (afirmada ? " afirmada" : "") + '">' +
-          (afirmada ? "afirmada" : "mesmo trecho" + (v.weight > 1 ? " · " + v.weight + "x" : "")) +
-        "</span>" +
+        '<span class="etiqueta' + classe + '">' + etiqueta + "</span>" +
         '<span><b style="color:' + C.escapeHtml("#cfe9f2") + '">' + C.escapeHtml(v.concept.name) + "</b>" +
         (prova ? '<br><span class="prova">“' + C.escapeHtml(prova) + "”</span>" : "") +
         "</span></div>";

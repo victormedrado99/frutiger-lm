@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+import struct
 import time
 import unicodedata
 import uuid
@@ -296,6 +297,7 @@ def _ligar(
     b_id: str,
     kind: str,
     provenance: str = "",
+    score: float = 0.0,
 ) -> dict[str, Any] | None:
     """A ligação, numa conexão que já está aberta.
 
@@ -312,10 +314,14 @@ def _ligar(
     ).fetchone()
 
     if existente:
-        # Co-ocorrência aparece muitas vezes e o peso é a informação; a aresta
-        # explícita é binária — repetir não a torna mais verdadeira.
+        # Cada tipo guarda a sua informação na coluna que faz sentido (D064):
+        # co-ocorrência ACUMULA peso; similaridade ATUALIZA a nota (o texto do
+        # conceito muda quando a extração roda de novo, e a nota acompanha); a
+        # afirmada é binária — repetir não a torna mais verdadeira.
         if kind == CO_OCORRENCIA:
             conn.execute("UPDATE edges SET weight = weight + 1 WHERE id = ?", (existente["id"],))
+        elif kind == SIMILARIDADE:
+            conn.execute("UPDATE edges SET score = ? WHERE id = ?", (score, existente["id"]))
         elif provenance and not existente["provenance"]:
             conn.execute(
                 "UPDATE edges SET provenance = ? WHERE id = ?", (provenance, existente["id"])
@@ -328,12 +334,13 @@ def _ligar(
         "b_id": b,
         "kind": kind,
         "weight": 1,
+        "score": score,
         "provenance": provenance,
         "created_at": _now(),
     }
     conn.execute(
-        """INSERT INTO edges (id, a_id, b_id, kind, weight, provenance, created_at)
-           VALUES (:id, :a_id, :b_id, :kind, :weight, :provenance, :created_at)""",
+        """INSERT INTO edges (id, a_id, b_id, kind, weight, score, provenance, created_at)
+           VALUES (:id, :a_id, :b_id, :kind, :weight, :score, :provenance, :created_at)""",
         aresta,
     )
     return aresta
@@ -345,6 +352,7 @@ def ligar(
     kind: str = CO_OCORRENCIA,
     *,
     provenance: str = "",
+    score: float = 0.0,
 ) -> dict[str, Any] | None:
     """Liga dois conceitos. Co-ocorrência soma peso; o resto mantém.
 
@@ -353,7 +361,7 @@ def ligar(
     nada e o grafo ganha arestas espelhadas.
     """
     with connect() as conn:
-        return _ligar(conn, a_id, b_id, kind, provenance)
+        return _ligar(conn, a_id, b_id, kind, provenance, score)
 
 
 def co_ocorrencia(concept_ids: list[str]) -> int:
@@ -390,6 +398,59 @@ def ligar_explicito(
     return bool(ligar(a_id, b_id, EXPLICITA, provenance=f"{quem}: {recorte}"))
 
 
+def ligar_similaridade(a_id: str, b_id: str, *, score: float, model: str) -> dict[str, Any] | None:
+    """A aresta **inferida** (F6/D063) — e a procedência diz de onde ela saiu.
+
+    Sem trecho, de propósito: não há nada no material que a sustente, e inventar uma
+    citação aqui seria o pior defeito possível neste projeto. O que ela carrega é o
+    modelo que a produziu e a nota, e as duas vão para o banco: é o que permite, meses
+    depois, olhar uma linha do desenho e saber que foi um modelo que a achou parecida.
+
+    A nota vai para `score`, e não para `weight` (D064) — peso é contagem, e a nota
+    perderia a casa decimal numa coluna de inteiro.
+    """
+    return ligar(
+        a_id,
+        b_id,
+        SIMILARIDADE,
+        score=round(float(score), 4),
+        provenance=f"inferida por {model}",
+    )
+
+
+def pares_ligados(
+    concept_ids: list[str], *, apenas: list[str] | None = None
+) -> set[tuple[str, str]]:
+    """Os pares que JÁ têm alguma ligação, de qualquer tipo (ou só dos `apenas`).
+
+    Existe para a regra da D063: a similaridade só entra onde não há nada. Onde o
+    material já afirma (ou os dois já apareceram juntos), a aresta inferida não
+    acrescenta informação — só disputa o desenho, sobrepondo traço sobre traço.
+
+    `apenas` importa numa segunda rodada: as arestas de similaridade que a primeira
+    criou também são "ligações", e se elas contassem aqui a nota nunca seria
+    atualizada quando o texto do conceito mudasse. Quem chama passa
+    `[CO_OCORRENCIA, EXPLICITA]` para perguntar o que interessa: o que tem lastro.
+    """
+    if len(concept_ids) < 2:
+        return set()
+    marcadores = ",".join("?" * len(concept_ids))
+    filtro = ""
+    parametros: list[Any] = [*concept_ids, *concept_ids]
+    if apenas is not None:
+        if not apenas:
+            return set()
+        filtro = f" AND kind IN ({','.join('?' * len(apenas))})"
+        parametros += list(apenas)
+    with connect() as conn:
+        linhas = conn.execute(
+            f"""SELECT a_id, b_id FROM edges
+                WHERE a_id IN ({marcadores}) AND b_id IN ({marcadores}){filtro}""",
+            tuple(parametros),
+        ).fetchall()
+    return {(linha["a_id"], linha["b_id"]) for linha in linhas}
+
+
 def vizinhanca(concept_id: str) -> dict[str, Any] | None:
     """O conceito, o que está ligado a ele, e com que fundamento."""
     conceito = get_conceito(concept_id)
@@ -418,6 +479,10 @@ def vizinhanca(concept_id: str) -> dict[str, Any] | None:
                 "kind": aresta["kind"],
                 "weight": aresta["weight"],
                 "provenance": aresta["provenance"],
+                # A nota da aresta INFERIDA (F6). Vai junto porque é a única coisa que a
+                # pessoa pode ponderar numa ligação que nenhum trecho sustenta — sem ela
+                # a tela mostraria "parecido 0%", que é pior do que não mostrar nada.
+                "score": aresta["score"],
                 "mentions": quantas,
             })
 
@@ -596,7 +661,7 @@ def grafo(
     *,
     notebook_id: str | None = None,
     peso_minimo: int = 1,
-    incluir_co_ocorrencia: bool = True,
+    tipos: list[str] | None = None,
     apenas_principais: bool = False,
 ) -> dict[str, Any]:
     """Os nós e as arestas do grafo, para desenhar.
@@ -604,6 +669,11 @@ def grafo(
     Filtrado por caderno, o grafo mostra só os conceitos mencionados ali e as
     arestas **entre eles** — uma aresta para um conceito fora do filtro seria uma
     linha saindo para o nada.
+
+    `tipos` escolhe quais famílias de aresta entram (padrão: as três). Virou uma lista
+    em vez de um booleano por tipo quando o F6 trouxe a terceira: `sem_co_ocorrencia`
+    e `sem_similaridade` seriam dois parâmetros para dizer a mesma coisa, e o terceiro
+    tipo pediria o terceiro. Quem monta a lista é quem sabe o que a tela quer mostrar.
 
     `apenas_principais` deixa de fora os conceitos **de passagem**: os citados uma
     única vez num único caderno. Num material de 150 mil caracteres, um termo citado
@@ -665,20 +735,21 @@ def grafo(
         if not ids:
             return {"nodes": [], "edges": [], "notebooks": [], "ocultos": ocultos}
 
-        tipos = [CO_OCORRENCIA, EXPLICITA] if incluir_co_ocorrencia else [EXPLICITA]
+        tipos = list(tipos) if tipos is not None else [CO_OCORRENCIA, EXPLICITA, SIMILARIDADE]
         marcadores = ",".join("?" * len(tipos))
-        # O peso filtra SÓ a co-ocorrência. A aresta afirmada é uma afirmação do
-        # material, não uma coincidência de vizinhança: filtrá-la por peso esconderia
-        # justamente as ligações com trecho, que são as que valem.
+        # O peso filtra SÓ a co-ocorrência — é o único tipo em que `weight` significa
+        # alguma coisa (é a contagem de blocos, D064). A afirmada é binária, e a
+        # similaridade carrega a nota em `score`: filtrar qualquer uma delas por peso
+        # esconderia justamente o que elas têm de informação.
         arestas = [
             dict(linha)
             for linha in conn.execute(
                 f"""SELECT * FROM edges
                     WHERE kind IN ({marcadores})
-                      AND (kind = ? OR weight >= ?)
+                      AND (kind != ? OR weight >= ?)
                       AND a_id IN ({",".join("?" * len(ids))})
                       AND b_id IN ({",".join("?" * len(ids))})""",
-                (*tipos, EXPLICITA, peso_minimo, *ids, *ids),
+                (*tipos, CO_OCORRENCIA, peso_minimo, *ids, *ids),
             )
         ]
 
@@ -833,6 +904,12 @@ def estatisticas() -> dict[str, int]:
             "explicitas": conn.execute(
                 "SELECT COUNT(*) AS n FROM edges WHERE kind = ?", (EXPLICITA,)
             ).fetchone()["n"],
+            "similaridades": conn.execute(
+                "SELECT COUNT(*) AS n FROM edges WHERE kind = ?", (SIMILARIDADE,)
+            ).fetchone()["n"],
+            # Quantos conceitos já têm vetor. É o que diz se dá para ligar por
+            # similaridade sem gastar nada (tudo embedado) ou quanto falta.
+            "vetores": conn.execute("SELECT COUNT(*) AS n FROM embeddings").fetchone()["n"],
         }
 
 
@@ -955,6 +1032,141 @@ def orfaos() -> int:
         ).fetchone()["n"]
 
 
+# --------------------------------------------------------------------------
+# Os vetores e as arestas inferidas (F6)
+#
+# A similaridade é a única coisa deste grafo que um MODELO deduziu, e não o material
+# afirmou. Por isso ela é guardada com o modelo que a produziu, com a nota (não com
+# peso) e num traço próprio no desenho: quem olhar tem que poder saber o que veio de
+# onde. Ver D061 a D066.
+# --------------------------------------------------------------------------
+
+
+def _empacotar(vetor: list[float]) -> bytes:
+    return struct.pack(f"<{len(vetor)}f", *vetor)
+
+
+def _desempacotar(bruto: bytes, dim: int) -> list[float]:
+    return list(struct.unpack(f"<{dim}f", bruto))
+
+
+def guardar_vetor(concept_id: str, *, model: str, texto_hash: str, vetor: list[float]) -> None:
+    """Grava o vetor **com o modelo e o hash do texto** que o produziram (D062).
+
+    Guardar o vetor sozinho seria guardar um número sem procedência: comparar vetores
+    de modelos diferentes dá um resultado plausível e errado, e o texto do conceito
+    muda quando a extração roda de novo.
+    """
+    with connect() as conn:
+        conn.execute(
+            """INSERT INTO embeddings (concept_id, model, texto_hash, dim, vetor, created_at)
+               VALUES (?,?,?,?,?,?)
+               ON CONFLICT(concept_id) DO UPDATE SET
+                   model = excluded.model,
+                   texto_hash = excluded.texto_hash,
+                   dim = excluded.dim,
+                   vetor = excluded.vetor,
+                   created_at = excluded.created_at""",
+            (concept_id, model, texto_hash, len(vetor), _empacotar(vetor), _now()),
+        )
+
+
+def vetores(concept_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """O que está guardado destes conceitos — com modelo e hash, para decidir o reuso.
+
+    Devolve o modelo e o hash junto do vetor de propósito: **quem chama é que decide**
+    se pode reusar (mesmo modelo, mesmo texto) ou se precisa recomputar. Se este
+    módulo decidisse por ele, a decisão ficaria escondida aqui dentro, longe de quem
+    conhece o provedor.
+    """
+    if not concept_ids:
+        return {}
+    marcadores = ",".join("?" * len(concept_ids))
+    with connect() as conn:
+        linhas = conn.execute(
+            f"""SELECT concept_id, model, texto_hash, dim, vetor FROM embeddings
+                WHERE concept_id IN ({marcadores})""",
+            tuple(concept_ids),
+        ).fetchall()
+    return {
+        linha["concept_id"]: {
+            "model": linha["model"],
+            "texto_hash": linha["texto_hash"],
+            "vetor": _desempacotar(linha["vetor"], linha["dim"]),
+        }
+        for linha in linhas
+    }
+
+
+def parecidos(
+    notebook_id: str | None = None, *, limiar: float = 0.96, limite: int = 40
+) -> list[dict[str, Any]]:
+    """Os pares muito parecidos — suspeita de duplicata (D066), com nome e menções.
+
+    Sai da tabela `suspeitas`, e NÃO das arestas de similaridade: a aresta não entra
+    onde já existe ligação (D063), e os pares mais parecidos são justamente os que já se
+    ligam. Ler das arestas deixaria a lista vazia exatamente no caso que interessa.
+    """
+    condicoes = ["s.score >= ?"]
+    parametros: list[Any] = [limiar]
+    if notebook_id:
+        # Os dois lados têm que estar neste caderno: um par entre cadernos é ponte, e
+        # ponte não é duplicata (é justamente a informação mais interessante do grafo).
+        condicoes.append(
+            "s.a_id IN (SELECT concept_id FROM mentions WHERE notebook_id = ?)"
+            " AND s.b_id IN (SELECT concept_id FROM mentions WHERE notebook_id = ?)"
+        )
+        parametros += [notebook_id, notebook_id]
+    parametros.append(limite)
+
+    with connect() as conn:
+        linhas = conn.execute(
+            f"""SELECT s.a_id, s.b_id, s.score, s.model,
+                       ca.name AS a_name, cb.name AS b_name,
+                       ca.aliases AS a_aliases, cb.aliases AS b_aliases,
+                       (SELECT COUNT(*) FROM mentions m WHERE m.concept_id = s.a_id) AS a_mentions,
+                       (SELECT COUNT(*) FROM mentions m WHERE m.concept_id = s.b_id) AS b_mentions
+                FROM suspeitas s
+                JOIN concepts ca ON ca.id = s.a_id
+                JOIN concepts cb ON cb.id = s.b_id
+                WHERE {" AND ".join(condicoes)}
+                ORDER BY s.score DESC
+                LIMIT ?""",
+            tuple(parametros),
+        ).fetchall()
+    return [dict(linha) for linha in linhas]
+
+
+def guardar_suspeitas(
+    notebook_id: str, pares: list[tuple[str, str, float]], *, model: str
+) -> int:
+    """Grava os pares muito parecidos deste caderno — substituindo os da rodada anterior.
+
+    Substitui, e não acumula: uma rodada nova com outro limiar (ou outro texto, depois
+    de uma extração nova) pode não ver mais o que via antes, e uma lista que só cresce
+    vira uma lista de coisas que já não são verdade. O que é apagado são as suspeitas
+    deste caderno — as dos outros ficam.
+    """
+    with connect() as conn:
+        conn.execute(
+            """DELETE FROM suspeitas WHERE a_id IN
+                   (SELECT concept_id FROM mentions WHERE notebook_id = ?)
+               AND b_id IN (SELECT concept_id FROM mentions WHERE notebook_id = ?)""",
+            (notebook_id, notebook_id),
+        )
+        for a_id, b_id, score in pares:
+            a, b = sorted([a_id, b_id])
+            conn.execute(
+                """INSERT INTO suspeitas (a_id, b_id, score, model, created_at)
+                   VALUES (?,?,?,?,?)
+                   ON CONFLICT(a_id, b_id) DO UPDATE SET
+                       score = excluded.score, model = excluded.model,
+                       created_at = excluded.created_at""",
+                (a, b, round(float(score), 4), model, _now()),
+            )
+        return len(pares)
+
+
 __all__ = [
     "CO_OCORRENCIA",
     "EXPLICITA",
@@ -966,17 +1178,23 @@ __all__ = [
     "estatisticas",
     "get_conceito",
     "grafo",
+    "guardar_suspeitas",
+    "guardar_vetor",
     "ligar",
     "ligar_explicito",
+    "ligar_similaridade",
     "limpar_fonte",
     "mencoes",
     "mesclar",
     "normalizar",
     "orfaos",
     "origem_da_mencao",
+    "pares_ligados",
+    "parecidos",
     "registrar_mencao",
     "renomear",
     "trecho_existe",
+    "vetores",
     "vizinhanca",
     "vocabulario",
 ]

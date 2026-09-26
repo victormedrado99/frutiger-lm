@@ -53,6 +53,9 @@ def estado_limpo():
                 "notes",
                 "edges",
                 "mentions",
+                # F6: as duas filhas de `concepts` que nasceram depois
+                "suspeitas",
+                "embeddings",
                 "concepts",
                 "outputs",
                 "sources",

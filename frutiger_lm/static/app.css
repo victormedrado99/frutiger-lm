@@ -1009,6 +1009,53 @@ input[type="range"]::-moz-range-thumb {
 }
 .vizinho .etiqueta.afirmada { border-color: rgba(95, 227, 240, 0.6); color: var(--accent); }
 
+/* Um bloco dentro do modal, para o que é opcional (F6: o modelo de embedding).
+   Delimitado de propósito: é o que faz a pessoa entender que aquilo pode ficar vazio
+   sem quebrar nada. */
+.campo-grupo {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.campo-grupo-titulo {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-dim);
+}
+
+/* Ligações INFERIDAS (F6): a etiqueta é lilás, e não ciano, porque a cor do app
+   significa "o material sustenta". Uma inferida com a cor da afirmação seria o desenho
+   mentindo sobre a procedência, que é o que a D063 existe para impedir. */
+.vizinho .etiqueta.inferida { border-color: rgba(186, 158, 255, 0.55); color: #bca0ff; }
+
+/* ------------------------------------------- candidatos a mesclar (F6)
+
+   O payoff da similaridade: dois nós que são o mesmo conceito. Fica abaixo do desenho,
+   com altura limitada — a lista pode crescer num grafo grande, e o quadro do grafo não
+   pode encolher por causa dela. */
+.grafo-parecidos {
+  flex: 0 0 auto;
+  max-height: 168px;
+  overflow-y: auto;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 12.5px;
+}
+.parecidos-titulo { color: var(--text-dim); margin-bottom: 7px; line-height: 1.45; }
+.parecidos-nota { color: var(--muted); font-size: 11.5px; }
+.parecido {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px dashed var(--border-soft);
+  cursor: pointer;
+}
+.parecido:hover .parecido-nomes { color: var(--text); }
+.parecido:first-of-type { border-top: none; }
+.parecido-nomes { flex: 1 1 auto; min-width: 0; line-height: 1.45; }
+
 /* botão de extrair, na página do caderno */
 .extrair-caixa { padding: 10px 12px; border-top: 1px solid var(--border-soft); }
 .extrair-progresso { font-size: 12.5px; color: var(--muted); margin-top: 7px; line-height: 1.5; }

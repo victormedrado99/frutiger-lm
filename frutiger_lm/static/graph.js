@@ -20,6 +20,22 @@
      as pontes, que ganham a aura). Uma cor por caderno era uma legenda a mais para
      aprender, e a paleta dava laranja e rosa a um app ciano. */
 
+  /* O tipo de aresta, traduzido para o que o desenho decide.
+
+     Mora numa tabela, e não num `if` dentro do laço de desenho, porque é ela que
+     garante a regra da D063: a aresta INFERIDA nunca entra na família das que o
+     material sustenta. Um tipo que este mapa não conhece cai em "outra" — que o
+     desenho desenha como o traço mais fraco. */
+  var TIPOS_DE_ARESTA = {
+    explicit: "afirmada",
+    similarity: "similaridade",
+    co_occurrence: "co_ocorrencia",
+  };
+
+  function tipoDeAresta(kind) {
+    return TIPOS_DE_ARESTA[kind] || "outra";
+  }
+
   function desenhar(canvas, dados, opcoes) {
     var opt = opcoes || {};
     var ctx = canvas.getContext("2d");
@@ -58,10 +74,17 @@
         return {
           a: porId[aresta.a_id],
           b: porId[aresta.b_id],
-          // Sólida é tudo o que não é mera co-ocorrência: ligação afirmada pelo
-          // material, e também a ligação entre cadernos (que é afirmada pelo banco —
-          // o conceito existe nos dois). Pontilhada é só a suspeita de vizinhança.
-          afirmada: aresta.kind !== "co_occurrence",
+          /* O traço sai do TIPO, e não de "é diferente de co-ocorrência" (D063).
+
+             Aquela forma era um defeito à espera do terceiro tipo: `afirmada =
+             kind !== "co_occurrence"` mandava QUALQUER tipo novo para o traço das
+             ligações que o material afirma. Com o F6, a aresta por similaridade — que é
+             inferida por um modelo e não tem trecho nenhum — apareceria desenhada como
+             afirmação do material, que é justamente o que este projeto não faz.
+
+             Tipo desconhecido cai no traço mais fraco, nunca no mais forte. */
+          tipo: tipoDeAresta(aresta.kind),
+          nota: aresta.score || 0,
           peso: aresta.weight || 1,
         };
       })
@@ -229,8 +252,10 @@
         var dx = aresta.b.x - aresta.a.x;
         var dy = aresta.b.y - aresta.a.y;
         var d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-        var alvo = aresta.afirmada ? 96 : 124;
-        var forca = (d - alvo) * (aresta.afirmada ? 0.020 : 0.010);
+        // Quem o material afirma fica mais perto; inferida e co-ocorrência puxam menos.
+        var forte = aresta.tipo === "afirmada";
+        var alvo = forte ? 96 : 124;
+        var forca = (d - alvo) * (forte ? 0.020 : 0.010);
         var ux = dx / d;
         var uy = dy / d;
         aresta.a.vx += ux * forca;
@@ -411,10 +436,23 @@
         ctx.beginPath();
         ctx.moveTo(aresta.a._sx, aresta.a._sy);
         ctx.lineTo(aresta.b._sx, aresta.b._sy);
-        if (aresta.afirmada) {
+        if (aresta.tipo === "afirmada") {
           // Afirmada pelo material: linha cheia e mais clara.
           ctx.strokeStyle = aceso ? "rgba(160, 240, 255, 0.72)" : "rgba(120, 170, 190, 0.16)";
           ctx.lineWidth = aceso ? 1.9 : 1;
+        } else if (aresta.tipo === "similaridade") {
+          /* Inferida pelo app (F6): tracejada longa, fina e mais apagada que a afirmada.
+
+             O peso visual foi MEDIDO, e não escolhido a olho: com alfa 0,26+0,34*nota o
+             traço ficava com 13 pixels visíveis contra 1428 co-ocorrências por cima —
+             ou seja, existia no código e não existia na tela. Agora ele aparece sem
+             chegar perto da linha cheia, porque a hierarquia tem que continuar óbvia:
+             o que o material afirma é o mais forte; o que o app achou, o mais fraco. */
+          ctx.setLineDash([8, 5]);
+          ctx.strokeStyle = aceso
+            ? "rgba(186, 158, 255, " + (0.40 + 0.45 * Math.max(0, Math.min(1, aresta.nota))) + ")"
+            : "rgba(150, 130, 200, 0.10)";
+          ctx.lineWidth = aceso ? 1.3 : 1;
         } else {
           // Co-ocorrência: pontilhada. A diferença precisa ser visível, senão o
           // desenho sugere relação onde só houve proximidade.

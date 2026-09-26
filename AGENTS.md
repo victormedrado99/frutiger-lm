@@ -78,13 +78,21 @@ frutiger_lm/
     extracao.py       conceitos a partir de um texto (F3)
     estudo.py         o card a partir do conceito e a comparação entre fontes (F4)
     artefato.py       o passe de compilação do documento (F5), em lista de seções
-    oficina.py        os artefatos EM CONSTRUÇÃO: run com id, fora do turno (D059)
+    embed.py          a fábrica do modelo de EMBEDDING (F6) — infraestrutura, não
+                      agente: não entra no catálogo e não tem docstring para modelo
+    similaridade.py   o trabalho das arestas por similaridade (F6): embeda com cache,
+                      compara por cosseno e liga só onde não há nada (D063)
+    oficina.py        as tarefas longas EM CONSTRUÇÃO: run com id, fora do turno
+                      (D059) — o runner dos dois trabalhos, `documento` e
+                      `similaridade` (D065)
     tools/leitura.py  listar_fontes, ler_fonte, buscar_nas_fontes — presas a um
                       `Escopo` (um caderno ou todos)
     tools/web.py      web_extract
     tools/grafo.py    as ferramentas do grafo (globais, D045)
     tools/estudo.py   lacunas e cards (presas ao caderno)
     tools/artefatos.py compilar_documento — dispara o run e devolve o id (D060)
+    tools/grafo.py    também a de similaridade: `ligar_por_similaridade` dispara o
+                      trabalho e devolve o id (presa ao caderno, F6)
   static/           UI vanilla (sem build). Se mexer no tema, o CSS é o único
                     lugar: os seletores são os mesmos desde antes.
                     `common.js` tem o `conversa()` — o chat do caderno e o dock da
@@ -245,6 +253,38 @@ frutiger_lm/
 - **Abrir um run no meio não perde passo, e isso é do `acompanhar`.** O gerador entrega o
   histórico **antes** de entrar na fila. Se você mexer nele, mantenha essa ordem: sem ela
   o painel que chega atrasado mostra uma caixa vazia e parece que a compilação travou.
+- **Rota renomeada deixa rastro no cliente.** A D065 renomeou `/api/artefatos` para
+  `/api/trabalhos` e o vocabulário dos eventos (`compilando.passo`/`output.completed` →
+  `trabalho.passo`/`trabalho.pronto`). O `grep` tem que passar em **todo** `static/*.js`:
+  havia uma URL antiga escondida no `notebook.js` (o caminho de acompanhar do botão) que o
+  teste não pega, porque o teste chama a rota nova. Os sintomas no navegador seriam
+  "o painel não segue nada" e um 404 no console.
+- **`OpenAIEmbeddings` manda TOKEN ID no lugar do texto, e o servidor local recusa.** O
+  cliente do LangChain tokeniza localmente com o tokenizador da OpenAI quando
+  `check_embedding_ctx_length` está no padrão (`True`) e envia os IDs como `input`. Contra
+  um servidor OpenAI-compatível que não é a OpenAI (llama.cpp, vLLM, LM Studio) isso volta
+  `400 Prompt contains invalid tokens` — erro que parece defeito do MODELO e é do CLIENTE.
+  O mesmo texto mandado por `curl` funciona, e é assim que se desconfia. Cura:
+  `check_embedding_ctx_length=False` + `model_kwargs={"encoding_format": "float"}`.
+- **Canvas é transparente: `getImageData` devolve a cor PURA, não a misturada.** Medir
+  "o traço está desenhado?" no canvas é a forma de provar desenho sem depender do olho — mas
+  um traço `rgba(186,158,255,0.54)` sobre canvas vazio sai como `(186,158,255,138)`, e não
+  como a mistura com o fundo escuro da página. Procurar a cor misturada dá zero pixel e a
+  conclusão errada ("não desenhou") para um traço que está lá.
+- **"Está desenhado" e "está visível" são perguntas diferentes.** A aresta inferida do F6
+  era desenhada e tinha **13 pixels** visíveis contra 1428 co-ocorrências por cima: passava
+  no teste e não aparecia para ninguém. Num desenho denso, meça pixel (ou o traço some no
+  meio da multidão de linhas) — e se o peso do traço é decidido a olho, ele é decidido
+  errado.
+- **O fake do embedding casa o mapa pelo COMEÇO do texto.** `fake.embed(vetores={...})`
+  compara a chave com o início do texto (que é o nome do conceito, D061) — casar por
+  "contém" fazia o nome de um conceito aparecer no trecho de outro e o teste declarava dois
+  vizinhos idênticos. É o mesmo tipo de armadilha do `pausa`: o fake simplifica e a
+  simplificação esconde justamente o caso que o teste queria cobrir.
+- **Tabela nova = limpeza nova no `conftest`.** O `fixture` apaga as tabelas uma a uma, e a
+  ordem importa (filhas antes das mães). `embeddings` e `suspeitas` referenciam `concepts`:
+  entram antes dela na lista, senão a FK quebra o teste seguinte com um erro que não fala do
+  teste.
 
 ## Validar com o modelo real
 

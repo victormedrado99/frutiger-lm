@@ -19,6 +19,7 @@ e stream** — as mesmas mensagens saem tanto de ``invoke`` quanto de ``astream`
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from typing import Any
 
@@ -169,3 +170,79 @@ def extrai(objetos: list, pausa: float = 0.0) -> _ExtratorFalso:
     que quem DISPARA um artefato não fica esperando por ele.
     """
     return _ExtratorFalso(objetos, pausa=pausa)
+
+
+class _EmbedderFalso:
+    """Vetores determinísticos, sem rede — e o teste pode ditar alguns (F6).
+
+    `vetores` mapeia o COMEÇO do texto para o vetor que ele deve produzir: como o texto
+    de um conceito começa pelo nome dele (D061), o teste diz "estes dois conceitos são
+    parecidos" e deixa a similaridade fazer o resto. Sem mapa, o vetor sai de um hash do
+    próprio texto — determinístico, e dois textos diferentes dão vetores diferentes. Não
+    finge semântica: finge um provedor.
+
+    `model` existe porque o app grava o nome do modelo junto do vetor e na aresta
+    (D062) — e o teste precisa poder dizer que o modelo MUDOU (o que obriga a
+    recomputar em vez de comparar espaços diferentes).
+    """
+
+    def __init__(
+        self,
+        vetores: dict[str, list[float]] | None = None,
+        *,
+        dim: int = 8,
+        model: str = "fake-embed",
+        pausa: float = 0.0,
+    ) -> None:
+        self.vetores = dict(vetores or {})
+        self.dim = dim
+        self.model = model
+        self.pausa = pausa
+        self.chamadas: list[list[str]] = []
+
+    def _vetor(self, texto: str) -> list[float]:
+        """O mapa casa pelo **começo** do texto, que é onde o nome do conceito está.
+
+        Casar por "contém" era o erro óbvio e foi cometido: o trecho de um conceito cita
+        o nome do outro, então o vetor de BRAVO vinha do mapa de ALFA e os dois saíam
+        idênticos — o teste então afirmava o que ele mesmo tinha fabricado.
+        """
+        alvo = texto.lstrip()
+        for chave, vetor in self.vetores.items():
+            if alvo.startswith(chave):
+                return [float(x) for x in vetor]
+        semente = int(hashlib.sha256(texto.encode("utf-8")).hexdigest()[:8], 16)
+        valores = []
+        for _ in range(self.dim):
+            semente, resto = divmod(semente * 6364136223846793005 + 1442695040888963407, 2**64)
+            valores.append((resto / 2**63) - 1.0)
+        return valores
+
+    def _proximos(self, textos: list[str]) -> list[list[float]]:
+        self.chamadas.append(list(textos))
+        return [self._vetor(texto) for texto in textos]
+
+    def embed_documents(self, textos: list[str]) -> list[list[float]]:
+        return self._proximos(textos)
+
+    async def aembed_documents(self, textos: list[str]) -> list[list[float]]:
+        if self.pausa:
+            await asyncio.sleep(self.pausa)
+        return self._proximos(textos)
+
+    def embed_query(self, texto: str) -> list[float]:
+        return self._vetor(texto)
+
+    async def aembed_query(self, texto: str) -> list[float]:
+        return self._vetor(texto)
+
+
+def embeda(
+    vetores: dict[str, list[float]] | None = None,
+    *,
+    dim: int = 8,
+    model: str = "fake-embed",
+    pausa: float = 0.0,
+) -> _EmbedderFalso:
+    """Um embedder falso para testar as arestas por similaridade sem rede e sem custo."""
+    return _EmbedderFalso(vetores, dim=dim, model=model, pausa=pausa)

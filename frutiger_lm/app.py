@@ -16,7 +16,17 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db, ingest, knowledge, model_store, prompts, study
 from .config import settings
-from .engine import agent, artefato, checkpoint, estudo, extracao, llm, oficina
+from .engine import (
+    agent,
+    artefato,
+    checkpoint,
+    embed,
+    estudo,
+    extracao,
+    llm,
+    oficina,
+    similaridade,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("frutiger")
@@ -160,17 +170,33 @@ async def set_model_settings(payload: dict[str, Any] = Body(...)) -> dict[str, A
 
     `api_key` ausente significa "não mexi no campo", e preserva a chave salva —
     o formulário devolve ela mascarada, então tratá-la como novo valor apagaria
-    a chave de quem só quis trocar o modelo.
+    a chave de quem só quis trocar o modelo. Vale igual para a chave do embedding.
+
+    O bloco de embedding (F6) é **opcional**, mas não é meio-configurável: endereço
+    sem modelo (ou o contrário) é recusado, pelo mesmo motivo de sempre. Vazio dos
+    dois lados significa "não uso essas arestas".
     """
     cfg = model_store.montar(
         base_url=payload.get("base_url", ""),
         model=payload.get("model", ""),
         api_key=payload.get("api_key"),
         temperature=payload.get("temperature"),
+        embed_base_url=payload.get("embed_base_url"),
+        embed_model=payload.get("embed_model"),
+        embed_api_key=payload.get("embed_api_key"),
     )
     falta = model_store.faltando(cfg)
     if falta:
         raise HTTPException(400, "Falta " + ", ".join(falta) + " para o modelo funcionar.")
+
+    # O embedding só é validado se a pessoa começou a configurá-lo — e aí a régua é a
+    # mesma do modelo de conversa: falta nomeada, não estado inutilizável em silêncio.
+    parcial = bool(cfg.embed_base_url or cfg.embed_model)
+    if parcial and not cfg.embed_configurado:
+        raise HTTPException(
+            400,
+            "Falta " + ", ".join(model_store.faltando_embed(cfg)) + " no bloco de embeddings.",
+        )
 
     model_store.save(cfg)
     return {"configured": cfg.configurado, **model_store.masked()}
@@ -201,6 +227,45 @@ async def test_model_settings() -> dict[str, Any]:
         "ok": True,
         "model": llm.resolve().model,
         "reply": str(resposta.content)[:200],
+    }
+
+
+@app.post("/api/settings/embed/test")
+async def test_embed_settings() -> dict[str, Any]:
+    """O mesmo princípio do teste acima, agora para o modelo de embedding (F6).
+
+    Aqui o teste é um vetor de verdade, e não uma conversa: o que pode falhar é o
+    provedor não ter endpoint de embedding nenhum (a DeepSeek não tem), o endereço
+    estar errado, ou o nome do modelo não existir naquele servidor. Nenhuma das três
+    aparece como erro na tela na hora de ligar por similaridade — apareceria como
+    "não criou aresta nenhuma", que é bem pior.
+    """
+    try:
+        embedder = embed.atual()
+    except embed.EmbeddingNaoConfigurado as exc:
+        raise HTTPException(400, str(exc)) from None
+
+    try:
+        vetores = await asyncio.wait_for(
+            embedder.aembed_documents(["teste de embedding"]), timeout=TESTE_TIMEOUT_S
+        )
+    except TimeoutError:
+        raise HTTPException(
+            504, f"O modelo de embedding não respondeu em {TESTE_TIMEOUT_S:.0f}s."
+        ) from None
+    except Exception as exc:  # noqa: BLE001 - a mensagem do provedor é o que ajuda
+        raise HTTPException(
+            502, f"{type(exc).__name__}: {str(exc)[:300]}{llm.explicar(exc)}"
+        ) from None
+
+    dimensao = len(vetores[0]) if vetores else 0
+    return {
+        "ok": True,
+        "model": embed.resolve().model,
+        "dim": dimensao,
+        # A dimensão é a informação útil aqui: ela diz que o provedor respondeu um
+        # vetor de verdade, e é ela que tem que ser igual para todos os conceitos.
+        "reply": f"{len(vetores)} vetor(es) de {dimensao} dimensões",
     }
 
 
@@ -464,6 +529,7 @@ async def get_grafo(
     notebook_id: str | None = None,
     peso_minimo: int = 1,
     sem_co_ocorrencia: bool = False,
+    sem_similaridade: bool = False,
     principalmente: bool = False,
 ) -> dict[str, Any]:
     """O grafo para desenhar.
@@ -476,18 +542,33 @@ async def get_grafo(
     os conceitos DO material — os que aparecem mais de uma vez, ou atravessam cadernos.
     Os de passagem continuam no banco (são as lacunas do F4) e o quanto ficou de fora
     volta em `ocultos`.
+
+    Os dois `sem_*` são interruptores de FAMÍLIA de aresta (D063/D065): a
+    co-ocorrência e a similaridade são as duas que a pessoa pode querer desligar para
+    ler o desenho; a afirmada, não — é ela que o material sustenta, e esconder isso
+    seria esconder o que o documento afirma. Cada interruptor existe porque o desenho
+    diz quantas linhas ele tirou.
     """
     if not notebook_id:
         # `peso_minimo` e `principalmente` são filtros de CONCEITO: no mapa de cadernos
         # não há o que filtrar — o nó é o caderno.
         return knowledge.grafo_de_cadernos()
 
+    tipos = [
+        tipo
+        for tipo, desligado in (
+            (knowledge.CO_OCORRENCIA, sem_co_ocorrencia),
+            (knowledge.SIMILARIDADE, sem_similaridade),
+            (knowledge.EXPLICITA, False),
+        )
+        if not desligado
+    ]
     _notebook_or_404(notebook_id)
     return {
         **knowledge.grafo(
             notebook_id=notebook_id,
             peso_minimo=max(1, peso_minimo),
-            incluir_co_ocorrencia=not sem_co_ocorrencia,
+            tipos=tipos,
             apenas_principais=principalmente,
         ),
         **knowledge.estatisticas(),
@@ -501,6 +582,21 @@ async def listar_conceitos(termo: str = "") -> list[dict[str, Any]]:
     if termo.strip():
         return knowledge.buscar(termo)
     return knowledge.grafo()["nodes"]
+
+
+@app.get("/api/notebooks/{notebook_id}/parecidos")
+async def parecidos(notebook_id: str, limiar: float | None = None) -> list[dict[str, Any]]:
+    """Os pares muito parecidos (F6/D066) — suspeita de duplicata, não prova.
+
+    Sai do que o trabalho de similaridade gravou, com um corte mais alto que o das
+    arestas. E o corte é alto por um motivo que a medição no material real ensinou: dos
+    pares acima de 0,96, nenhum era duplicata — eram conceitos diferentes que
+    compartilham a mesma frase de origem. Então isto é uma lista para OLHAR, e quem
+    decide mesclar (ou não) continua sendo a pessoa.
+    """
+    _notebook_or_404(notebook_id)
+    corte = similaridade.LIMIAR_MESCLAR if limiar is None else limiar
+    return knowledge.parecidos(notebook_id, limiar=corte)
 
 
 @app.get("/api/conceitos/{concept_id}")
@@ -809,15 +905,15 @@ async def delete_output(output_id: str) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-# O documento compilado (F5)
+# As tarefas longas: o documento compilado (F5) e as arestas por similaridade (F6)
 # --------------------------------------------------------------------------- #
 # O mesmo passe serve ao botão, ao download e à impressão. A narração é UMA chamada de
 # modelo; todo o resto do documento é consulta ao grafo e ao banco — e é a maior parte
 # dele (na prática: 36 das 38 seções do caderno de verdade).
 #
 # A construção NÃO acontece dentro desta requisição: ela é um run da oficina, com id
-# (D059). É o que permite a mesma compilação nascer do botão ou de uma ferramenta do
-# chat, e ser acompanhada de fora — inclusive por quem não foi quem pediu.
+# (D059) — e a partir do F6 a oficina é o runner de tarefa longa do app, com dois
+# trabalhos e um vocabulário de eventos só (D065).
 
 
 async def _acompanhar_run(run_id: str) -> AsyncIterator[str]:
@@ -831,7 +927,7 @@ async def compilar_documento(notebook_id: str, sem_modelo: bool = False) -> dict
     """Dispara a compilação e devolve o run — **sem esperar o documento**.
 
     Disparar e acompanhar são dois verbos: este só cria o run e volta na hora; quem
-    quer ver o documento sendo montado segue `GET /api/artefatos/{run_id}`. Foi de
+    quer ver o documento sendo montado segue `GET /api/trabalhos/{run_id}`. Foi de
     propósito que o botão e o chat usam o MESMO caminho de acompanhamento (D024) — se
     o POST transmitisse o progresso, o painel teria dois códigos de seguir run, e o do
     chat seria o segundo a ser esquecido numa mudança.
@@ -844,27 +940,57 @@ async def compilar_documento(notebook_id: str, sem_modelo: bool = False) -> dict
     clique acompanha a primeira em vez de pagar uma segunda chamada de modelo (D059).
     """
     _notebook_or_404(notebook_id)
-    run = oficina.oficina.iniciar(notebook_id, origem="botao", com_narrativa=not sem_modelo)
+    run = oficina.oficina.iniciar(
+        notebook_id,
+        trabalho=oficina.DOCUMENTO,
+        origem="botao",
+        parametros={"com_narrativa": not sem_modelo},
+    )
     return run.resumo()
 
 
-@app.get("/api/artefatos")
-async def artefatos(notebook_id: str | None = None) -> list[dict[str, Any]]:
-    """As compilações que a tela pode mostrar — terminadas inclusive, por um tempo.
+@app.post("/api/notebooks/{notebook_id}/similaridade")
+async def ligar_por_similaridade(notebook_id: str, limiar: float | None = None) -> dict[str, Any]:
+    """Dispara a ligação por similaridade e devolve o run (F6).
 
-    É por aqui que o painel descobre uma compilação nascida no CHAT: o botão dispara a
-    sua e acompanha direto, mas quando quem pediu foi a ferramenta do agente, o painel
-    não fica sabendo de nada — ele precisa perguntar.
+    Custa chamadas — uma por conceito que ainda não tem vetor — então é ação
+    **explícita**, como a extração (D042). A segunda rodada em diante é de graça: o
+    vetor guardado é reusado quando o modelo e o texto do conceito são os mesmos
+    (D062).
+
+    `limiar` existe para medir: o valor padrão é o que a medição no caderno real
+    escolheu, e poder rodar com outro é o que permite medir de novo quando o material
+    mudar. A tela usa o padrão.
     """
-    return oficina.oficina.ativos(notebook_id)
+    _notebook_or_404(notebook_id)
+    run = oficina.oficina.iniciar(
+        notebook_id,
+        trabalho=oficina.SIMILARIDADE,
+        origem="botao",
+        parametros={"limiar": limiar} if limiar is not None else {},
+    )
+    return run.resumo()
 
 
-@app.get("/api/artefatos/{run_id}")
-async def acompanhar_artefato(run_id: str) -> StreamingResponse:
+@app.get("/api/trabalhos")
+async def trabalhos(
+    notebook_id: str | None = None, trabalho: str | None = None
+) -> list[dict[str, Any]]:
+    """As tarefas longas que a tela pode mostrar — terminadas inclusive, por um tempo.
+
+    É por aqui que o painel descobre uma tarefa nascida no CHAT: o botão dispara a sua
+    e acompanha direto, mas quando quem pediu foi a ferramenta do agente, o painel não
+    fica sabendo de nada — ele precisa perguntar.
+    """
+    return oficina.oficina.ativos(notebook_id, trabalho=trabalho)
+
+
+@app.get("/api/trabalhos/{run_id}")
+async def acompanhar_trabalho(run_id: str) -> StreamingResponse:
     """Acompanha um run pelo id, tenha ele nascido de onde for. O histórico vem junto."""
     if oficina.oficina.obter(run_id) is None:
         raise HTTPException(
-            404, "Compilação não encontrada — ela sai da lista algum tempo depois de terminar."
+            404, "Tarefa não encontrada — ela sai da lista algum tempo depois de terminar."
         )
     return StreamingResponse(
         _acompanhar_run(run_id), media_type="text/event-stream", headers=SSE_HEADERS

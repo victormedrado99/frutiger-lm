@@ -44,17 +44,31 @@
             <label class="grafo-toggle" title="Só os conceitos DO material: os que aparecem mais de uma vez, ou que atravessam cadernos. Os citados uma única vez são menção de passagem — num material grande eles são a maioria, e são eles que transformam o desenho num novelo. Desmarque para ver todos.">
               <input type="checkbox" id="grafo-principais" checked> principais
             </label>
+            <!-- O interruptor das arestas INFERIDAS (F6). Ele só aparece quando existem:
+                 um controle para uma coisa que não existe é ruído, e a barra é estreita.
+                 Desligado, ele diz quantas linhas tirou do desenho — nada some calado. -->
+            <label class="grafo-toggle" id="grafo-similares-label" hidden
+                   title="Ligações que o app ACHOU parecidas, comparando os vetores dos conceitos. São inferidas: nenhum trecho do material as sustenta, e por isso o traço é diferente. Desmarque para tirá-las do desenho.">
+              <input type="checkbox" id="grafo-similares" checked> similares
+            </label>
           </div>
           <div class="grafo-linha">
             <button class="btn btn-sm" id="grafo-voltar" hidden
                     title="Voltar ao grafo geral, com todos os cadernos">← Voltar</button>
+            <!-- A ligação por similaridade é ação EXPLICITA, como a extração: custa
+                 chamadas de embedding (uma por conceito que ainda não tem vetor; a
+                 segunda vez é de graça). -->
+            <button class="btn btn-sm" id="btn-similaridade" hidden
+                    title="Compara os vetores dos conceitos deste caderno e liga os que falam da mesma coisa — inclusive os que nunca apareceram juntos no material. Também levanta os pares que parecem ser o MESMO conceito. Custa chamadas de embedding; a segunda rodada é de graça.">ligar parecidos</button>
             <span class="grafo-stats" id="grafo-stats"></span>
           </div>
         </div>
+        <div class="extrair-progresso" id="similaridade-progresso" hidden></div>
+        <div class="grafo-parecidos" id="grafo-parecidos" hidden></div>
         <div class="grafo-area">
           <!-- A explicação do desenho vive no `title` do quadro: ela informa sem ocupar
                uma linha, e a linha valia 59px de desenho. -->
-          <canvas id="grafo-canvas" title="Linha cheia = ligação que o material afirma, com trecho de origem. Pontilhada = dois conceitos que aparecem juntos no mesmo trecho. Tamanho do nó = quantas vezes o conceito aparece. Cor = caderno."></canvas>
+          <canvas id="grafo-canvas" title="Linha cheia = ligação que o material afirma, com trecho de origem. Pontilhada = dois conceitos que aparecem juntos no mesmo trecho. Tracejada = parecidos para o app (inferido por vetores, sem trecho). Tamanho do nó = quantas vezes o conceito aparece. Aura = o conceito também existe em outro caderno."></canvas>
           <div class="grafo-vazio" id="grafo-vazio" hidden></div>
         </div>
       </div>
@@ -153,6 +167,34 @@
         <div class="field">
           <label for="md-temp">Temperatura: <b id="md-temp-val">0.2</b></label>
           <input type="range" id="md-temp" min="0" max="1" step="0.1" value="0.2">
+        </div>
+
+        <!-- O modelo de EMBEDDING (F6): opcional, e separado do de conversa porque
+             nem todo provedor que conversa sabe vetorizar (a DeepSeek não sabe). Sem
+             ele o app funciona inteiro — só não liga por similaridade. -->
+        <div class="campo-grupo">
+          <div class="campo-grupo-titulo">
+            Embeddings <span class="muted" id="md-embed-estado"></span>
+          </div>
+          <p class="hint" style="margin:0 0 10px" id="md-embed-intro">
+            Opcional. Serve para as <b>arestas por similaridade</b>: o app compara os
+            vetores dos conceitos e liga os que falam da mesma coisa. O provedor de
+            conversa não precisa ser o mesmo — a DeepSeek, por exemplo, não oferece
+            embeddings; um servidor local (LM Studio, llama.cpp) oferece.
+          </p>
+          <div class="field">
+            <label for="md-embed-url">Endereço</label>
+            <input type="url" id="md-embed-url" placeholder="http://127.0.0.1:8080/v1" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="md-embed-model">Modelo</label>
+            <input type="text" id="md-embed-model" placeholder="nomic-embed-text-v1.5" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="md-embed-key">Chave da API <span class="muted" id="md-embed-key-state"></span></label>
+            <input type="password" id="md-embed-key" placeholder="(local não precisa)" autocomplete="off">
+          </div>
+          <button class="btn btn-sm" id="btn-test-embed">Testar embeddings</button>
         </div>
 
         <div id="md-result" hidden></div>

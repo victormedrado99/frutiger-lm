@@ -28,7 +28,7 @@ from ..prompts import build_global_prompt, build_notebook_prompt
 from . import llm
 from .tools.artefatos import ferramentas_de_artefatos
 from .tools.estudo import ferramentas_de_estudo
-from .tools.grafo import ferramentas_de_grafo
+from .tools.grafo import ferramentas_de_grafo, ferramentas_de_similaridade
 from .tools.leitura import Escopo, ferramentas_de_leitura
 from .tools.web import ferramentas_de_web
 
@@ -53,6 +53,7 @@ def catalogo(notebook_id: str) -> list[BaseTool]:
         *ferramentas_de_grafo(),
         *ferramentas_de_estudo(notebook_id),
         *ferramentas_de_artefatos(notebook_id),
+        *ferramentas_de_similaridade(notebook_id),
     ]
 
 

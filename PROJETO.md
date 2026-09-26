@@ -99,6 +99,13 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D058 | `[hidden]` é regra **global** no CSS; clique só se prova por `elementFromPoint` | DECIDIDO |
 | D059 | O artefato é um **run com id**, fora do turno — e o LangGraph não entra nisso (revê o mecanismo do D028) | DECIDIDO |
 | D060 | **UMA** ferramenta de artefato: a que existe (`compilar_documento`), e não um `gerar_documento(template)` | DECIDIDO |
+| D061 | O embedding é do **conceito**, e o texto que entra é o nome **mais os trechos** | DECIDIDO |
+| D062 | O vetor é guardado com o **modelo** e o **texto** que o produziram; espaço de vetor não se mistura | DECIDIDO |
+| D063 | A aresta `similarity` só entra onde **não há nada**, com o desenho próprio de aresta inferida | DECIDIDO |
+| D064 | `edges` ganha **`score`** (peso é contagem; similaridade é nota), e o limiar é **medido**, não escolhido | DECIDIDO |
+| D065 | A oficina passa a ser o runner de **tarefa longa** do app: `trabalho` + eventos genéricos | DECIDIDO |
+| D066 | Parecidos **demais** viram uma lista de suspeita de duplicata — REVISTA pela D067 | DECIDIDO |
+| D067 | A suspeita é **convite a olhar**, não atalho para mesclar: a medição mostrou que parecido não é igual | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -494,7 +501,22 @@ diferentes. As falhas comuns viram dica acionável em vez de mensagem crua do
 provedor (esqueceu o LM Studio ligado → a mensagem diz isso e aponta a porta).
 
 Embeddings são **infraestrutura**, não agente: servem às arestas por similaridade
-(F6) e não passam pelo agente.
+(F6) e não passam pelo agente — não entram no catálogo de ferramentas e não têm
+docstring para modelo nenhum ler (D061).
+
+O modelo de embedding mora no **mesmo arquivo** do de conversa (`data/model.json`,
+600), porque um diretório de dados é uma instância e um segundo arquivo de segredo
+seria uma segunda coisa para não compartilhar (D030). Os campos são `embed_base_url`,
+`embed_model` e `embed_api_key`, e valem a mesma disciplina da chave do chat: a chave
+nunca volta para o navegador (só um dica dos 4 últimos caracteres) e campo vazio
+significa "não mexi".
+
+Eles são **opcionais**, e a UI diz isso em vez de deixar a pessoa adivinhar: sem
+embedding o app funciona inteiro, só não liga por similaridade. E não é o mesmo
+provedor por acidente — a DeepSeek, que é o provedor configurado hoje, **não oferece
+embeddings**; quem quer as arestas por similaridade aponta para um servidor local
+(LM Studio, llama.cpp) ou para outro provedor, e o modal tem botão de testar
+embeddings (`POST /api/settings/embed/test`, que devolve a dimensão do vetor).
 
 ---
 
@@ -516,8 +538,20 @@ concepts(id, name, canonical, aliases, kind, created_at, updated_at)
 mentions(id, concept_id, notebook_id, source_id, output_id, thread_id,
          message_id, excerpt, created_at)
   → É o mecanismo da ancoragem: cada menção guarda o TRECHO de origem
-edges(id, a_id, b_id, kind, weight, provenance, created_at)
+edges(id, a_id, b_id, kind, weight, provenance, score, created_at)
   → kind: co_occurrence | explicit | similarity · UNIQUE(a_id, b_id, kind)
+  → weight é CONTAGEM (quantas vezes se encontraram); score é NOTA (0..1, o quanto
+    se parecem). Cada tipo usa a coluna que faz sentido — a inferida usa `score`
+    porque guardá-la em `weight` faria 0,83 virar 1 em silêncio (D064)
+embeddings(concept_id, model, texto_hash, dim, vetor, created_at)
+  → O vetor float32 empacotado (struct, não JSON: 768 floats em JSON são 15 KB de
+    texto para cada conceito). `model` + `texto_hash` são o cache: vetor de outro
+    modelo, ou de outro texto, não serve (D062)
+suspeitas(a_id, b_id, score, model, created_at) · PRIMARY KEY(a_id, b_id)
+  → Os pares muito parecidos (suspeita de duplicata). Tabela própria porque a aresta
+    de similaridade não entra onde já há ligação (D063), e os pares mais parecidos
+    são justamente os que já se ligam: lida das arestas, a lista ficaria vazia
+    exatamente nos pares que interessam (D067)
 notes(id, concept_id, notebook_id, body, created_at)
 index_cache(notebook_id, summary, concepts_blob, built_at)
 ```
@@ -1115,6 +1149,219 @@ desenvolvimento para o chat — que é a segunda metade do problema (o texto ref
 cima). Na prova real ele obedeceu: devolveu o id, disse em que painel o documento aparece,
 e não colou o texto.
 
+### D061 — o embedding é do conceito, e o texto que entra é o nome mais os trechos
+
+A pergunta que decide tudo no F6 é *o que* se transforma em vetor. Três candidatos, e os
+dois primeiros não servem:
+
+- **o nome sozinho**: neste material os conceitos são em boa parte códigos curtos —
+  `ISO 14230`, `ISO 15765`, `ISO 11898`, `KWP2000`, `KB1`, `KB2`. Cinco caracteres de
+  código num espaço semântico ficam quase todos na mesma vizinhança, e o resultado seria
+  uma aresta ligando `ISO 14230` a `ISO 15765` porque os dois "parecem" um código — o
+  tipo de ligação que parece conhecimento e é ruído.
+- **a fonte inteira**: seria um segundo RAG, com outra contagem de custo e outro desenho;
+  e a pergunta do grafo é sobre CONCEITO, não sobre documento.
+- **o nome mais os trechos** (o escolhido): o que o material diz sobre aquele conceito
+  entra junto, e é isso que separa `ISO 14230` de `ISO 15765` — não o código, mas o que o
+  texto afirma sobre cada um. São os mesmos trechos que já sustentam o documento (F5), o
+  que mantém a promessa do projeto: o que o vetor usa também é conferível, na fonte.
+
+O texto é montado com um limite (nome + até dois trechos recortados) porque embedding de
+texto gigante é caro e não melhora a separação: o sinal está na primeira frase de cada
+trecho, e o resto só dilui.
+
+### D062 — o vetor é guardado com o modelo e o texto que o produziram
+
+```
+embeddings(concept_id PK, model, texto_hash, dim, vetor BLOB, created_at)
+```
+
+Duas informações além do vetor, e as duas existem para impedir um erro específico:
+
+1. **o `model`**: vetores de modelos diferentes vivem em espaços diferentes. Comparar
+   cosseno entre um vetor do `nomic-embed-text` e um do `text-embedding-3-small` não dá
+   erro — dá um número plausível e sem sentido, que viraria uma aresta no desenho. Guardar
+   o modelo é o que permite **recomputar** em vez de comparar o que não é comparável.
+2. **o `texto_hash`**: o mesmo conceito muda de trechos quando a extração roda de novo. Sem
+   o hash, o vetor antigo continuaria no banco e a similaridade passaria a refletir um
+   texto que não existe mais.
+
+O vetor em `BLOB` (float32 empacotado), e não em JSON: 768 dimensões em JSON são ~15 KB de
+texto de dígitos; empacotado são 3 KB. É memória de trabalho, não conteúdo — não precisa
+ser legível por quem abrir o banco.
+
+Cache por (modelo, hash) é o que faz a segunda rodada ser de graça: só o que mudou é
+recomputado. Sem isso o botão seria caro de clicar duas vezes, e clicar duas vezes é o que
+as pessoas fazem.
+
+### D063 — a aresta por similaridade só entra onde não há nada
+
+Regra: **entre dois conceitos que já têm qualquer outra aresta, a similaridade não entra.**
+Ela é a única aresta INFERIDA deste app — sai de um modelo olhando para texto, não do
+material afirmando nada nem de dois conceitos aparecerem juntos. As outras duas têm lastro;
+esta tem vizinhança semântica. Onde já existe uma ligação de verdade, a inferida não
+acrescenta nada: só compete com ela no desenho, sobrepondo linha sobre linha.
+
+O que sobra é justamente onde ela serve: **dois conceitos que nada liga, mas que falam da
+mesma coisa.** É a informação que o grafo não tinha como ter — co-ocorrência só acha o que
+apareceu no mesmo bloco, e aresta afirmada só acha o que alguém afirmou.
+
+E o desenho tem três traços, porque há três naturezas:
+
+| aresta | traço | o que significa |
+|---|---|---|
+| afirmada | cheia, clara | o material disse isso, e há trecho |
+| co-ocorrência | pontilhada curta | apareceram juntos num bloco |
+| similaridade | tracejada longa e apagada | o app achou parecido (inferido, sem trecho) |
+
+Antes de mudar isto, note o defeito que existia no código: o desenho fazia
+`afirmada = kind !== "co_occurrence"` — ou seja, **qualquer** tipo novo cairia no traço
+das afirmadas. Ligação inferida desenhada como afirmação do material é exatamente o que
+este projeto não faz. Agora o traço é escolhido por tipo, e um tipo desconhecido cai no
+traço mais fraco (o de inferência), nunca no mais forte.
+
+### D064 — `score`, porque peso não é nota
+
+A tabela `edges` tinha `weight INTEGER` — a contagem de blocos em que dois conceitos
+apareceram juntos. Similaridade é um número entre 0 e 1, e não uma contagem: guardá-la em
+`weight` faria `0,83` virar `1` em silêncio, e aí a única informação que a aresta carrega
+se perderia — o quanto eles se parecem.
+
+Então entrou uma coluna própria, `score REAL`, e cada tipo usa a coluna que faz sentido:
+co-ocorrência usa `weight` (quantas vezes), similaridade usa `score` (o quanto). A aresta
+afirmada não usa nenhuma das duas: ela é binária, porque afirmação não tem graduação.
+
+O **limiar padrão é medido, não escolhido**. Isso é o que a fase tem de fazer antes de
+prometer: rodar no caderno real e olhar a distribuição das similaridades. Um limiar chutado
+ou deixa o desenho sem nenhuma aresta nova, ou o enche de linhas — e as duas coisas passam
+despercebidas, porque um grafo bonito não avisa quando está errado.
+
+**A medição** (caderno real, 102 conceitos, 5151 pares, `nomic-embed-text-v1.5` local, 768
+dimensões):
+
+| Estatística | Cosseno |
+|---|---|
+| mínimo | 0,36 |
+| p10 | 0,46 |
+| mediana | 0,56 |
+| p90 | 0,68 |
+| p99 | **0,80** |
+| máximo | 0,98 |
+
+A primeira coisa que a tabela diz é que **neste material o cosseno tem piso alto**: metade
+dos pares fica acima de 0,56, e "0,5" — que a intuição leria como "parecido" — é, aqui,
+abaixo da mediana. Só o topo da distribuição informa. Daí os dois números: **0,80** para a
+aresta (≈ p99: 48 pares) e **0,96** para a suspeita (5 pares). E o piso alto é o argumento
+contra chutar: um limiar de 0,7 teria criado 361 arestas, e o desenho viraria novelo sem que
+nada no código parecesse errado.
+
+### D065 — a oficina passa a ser o runner de tarefa longa do app
+
+O F6 precisa exatamente do que o F5 construiu: uma tarefa longa (embeddings de 100
+conceitos, com chamada de rede no meio), com progresso na tela, disparável pelo botão **e**
+pela ferramenta do agente. A tentação seria escrever isso de novo para a similaridade — e o
+resultado seria a segunda implementação de "tarefa longa com progresso", que é o que a D024
+existe para impedir.
+
+Então a oficina deixou de ser "a oficina dos documentos" e virou **o runner de tarefa longa
+do app**:
+
+```python
+oficina.iniciar(notebook_id, trabalho="documento" | "similaridade", origem=...)
+```
+
+Um run agora tem um `trabalho`, um `resultado` (números do que fez) e — no caso do
+documento — o `output` gravado. Os eventos ficaram genéricos pelo mesmo motivo: um
+vocabulário só (`trabalho.passo`, `trabalho.pronto`, `error`, `done`). Dois vocabulários
+significariam dois códigos de acompanhar na tela, e o segundo seria o esquecido.
+
+As rotas acompanharam o nome: `/api/trabalhos` e `/api/trabalhos/{id}`.
+
+### D066 — parecidos demais são uma lista de suspeita de duplicata  (REVISTA pela D067)
+
+O payoff do F6 num app de estudo não é a aresta bonita no desenho: é descobrir que **dois
+conceitos são o mesmo** e que o grafo está contando duas vezes.
+
+A D041 resolveu o caso comum (o extrator recebe o vocabulário e reusa o nome), mas ela só
+cobre variante que o modelo VÊ na lista. `OBD2` contra `OBD-II` já foi medido como problema
+real: normalizar não resolve, e a lista não salva quando o extrator não repara. Um par com
+similaridade muito alta (bem acima do limiar da aresta) é exatamente essa suspeita, e agora
+ela tem um lugar na tela, com as menções dos dois lados.
+
+Duas decisões dentro desta, e as duas sobreviveram à revisão:
+
+- o limiar da suspeita é **mais alto** que o da aresta — são duas perguntas diferentes, e a
+  segunda é mais exigente.
+- **quem decide é a pessoa.** O app não mescla sozinho, e não esconde o par "óbvio" da
+  lista: um grafo que se corrige em silêncio não pode ser auditado.
+
+### D067 — a suspeita é convite a olhar, não atalho para mesclar
+
+Esta decisão nasceu de uma medição, e a medição contrariou o que a D066 supunha. Os cinco
+pares acima de 0,96 no caderno real:
+
+| Nota | Par | É duplicata? |
+|---|---|---|
+| 98,2% | Source Address ≈ Target Address | **não** — são campos diferentes do mesmo cabeçalho |
+| 97,5% | Physical Addressing ≈ Target Address | **não** — um é modo de endereçamento, o outro é campo |
+| 96,9% | Source Address ≈ Physical Addressing | **não** |
+| 96,9% | E/E architectures ≈ Ethernet-based diagnostics | **não** — um é a arquitetura, o outro é o diagnóstico |
+| 96,2% | Diagnostic services ≈ ISO 14229 | **não** — o trecho diz "UDS (ISO 14229) é o sucessor… e oferece serviços" |
+
+**Nenhum era duplicata.** E o motivo é estrutural, não azar: o texto que vira vetor é o nome
+mais os trechos (D061), e dois conceitos DIFERENTES citados na MESMA frase de origem ficam
+com vetores quase iguais — é a frase que os aproxima, não a identidade. Quanto mais bem
+escrito o material (uma frase explicando a relação entre dois conceitos), mais forte esse
+efeito.
+
+Um botão de "mesclar" ali seria um atalho para uma ação **sem volta** (as menções migram e um
+dos nomes se perde) oferecido com base numa evidência que acabou de se mostrar errada. Então:
+
+- a lista perdeu o botão de mesclar e virou **convite a olhar**: clicar num par abre o
+  conceito, onde os dois aparecem lado a lado, com as menções à vista e o mesclar no lugar de
+  sempre (a tela do conceito, D024);
+- o texto da lista diz o que a medição ensinou — "parecido não é igual: dois conceitos
+  diferentes podem compartilhar a mesma frase de origem";
+- o corte subiu para 0,96 (medido: 0,93 e 0,96 dão o mesmo conjunto neste material; o teto
+  mais alto é o que faz sentido numa lista que sugere fundir).
+
+E a lista ganhou **tabela própria** (`suspeitas`), porque a versão anterior — lida das
+arestas de similaridade — estava condenada a ficar vazia: a D063 não cria aresta onde já há
+ligação, e os pares mais parecidos são justamente os que já se ligam. A pergunta "estes dois
+são o mesmo conceito?" não deixa de existir porque o material já os ligou.
+
+A suspeita continua valendo o que valia: é um lugar para OLHAR, e a pessoa decide.
+
+### O que só a medição real ensinou (F6)
+
+Três coisas que nenhum teste pegaria, porque os três casos passam em teste e falham no uso.
+
+**1. O cliente falava a língua errada, e o erro acusava o modelo.** A primeira chamada de
+embedding contra o `llama-server` local voltou `400 Prompt contains invalid tokens` — para um
+texto que, mandado por `curl` na mão, funcionava. A causa: o `OpenAIEmbeddings` do LangChain,
+por padrão, **tokeniza o texto localmente com o tokenizador da OpenAI** e manda os IDs no
+lugar do texto. O servidor local recebe IDs que não existem no vocabulário dele e recusa.
+A cura são duas linhas que a própria documentação da lib recomenda para provedor
+OpenAI-compatível — `check_embedding_ctx_length=False` (manda texto) e
+`model_kwargs={"encoding_format": "float"}` (não pede base64) —, e o sintoma valia o registo:
+o erro parecia "esse modelo não presta para embeddings", e o defeito era o cliente.
+
+**2. O traço existia no código e não existia na tela.** A aresta inferida estava sendo
+desenhada — e o desenho tinha, medido em pixel, **13 pixels lilás visíveis contra 1428
+co-ocorrências** desenhadas por cima. Ou seja: passar no teste ("a aresta foi desenhada?") e
+não aparecer para ninguém. O peso do traço foi ajustado com a medida na mão (0 → 24 pixels
+no mesmo quadro), e a lição ficou geral: num desenho denso, "está desenhado" e "está visível"
+são perguntas diferentes — e a segunda se mede contando pixel, não olhando.
+
+**3. As arestas inferidas caem, em boa parte, em conceitos de passagem.** No caderno real, as
+7 arestas ligam conceitos citados UMA vez — e o corte dos "principais" (D054) esconde
+exatamente esses. Com o corte ligado, o desenho não mostra nenhuma aresta inferida. Não é
+defeito a corrigir mexendo no corte: a D054 existe para não virar novelo, e misturar um
+critério inferido dentro de um corte que é sobre o material seria justamente o tipo de
+confusão que este projeto evita. Fica dito, e a pessoa tem os três caminhos: desmarcar
+"principais", olhar a lista de suspeitas, ou abrir o conceito (a tela do conceito mostra as
+duas etiquetas lado a lado).
+
 ### O que o F4 não faz
 
 - **geração de mídia**: nem áudio, nem imagem, nem vídeo. Nunca esteve no escopo.
@@ -1159,9 +1406,26 @@ e não colou o texto.
       aparece no painel (provado no log do servidor: o painel pergunta, descobre o run e
       segue); Anki e Obsidian saem do mesmo passe
 
-### F6 — Arestas por similaridade
-- [ ] embeddings por conceito (`LLM_EMBED`)
-- [ ] arestas `similarity` acima de limiar
+### F6 — Arestas por similaridade  ← CONCLUÍDA
+- [x] embedding por conceito (`LLM_EMBED`), com o texto do **nome mais os trechos** (D061) e
+      cache por `(modelo, hash do texto)` — a segunda rodada no caderno real recalculou
+      **0 de 102 vetores** (D062) e o clique virou instantâneo
+- [x] arestas `similarity` acima do limiar, **inferidas** e marcadas como tal: `score` na
+      coluna própria (D064), tracejado lilás no desenho, procedência `inferida por <modelo>`
+      e etiqueta "parecido NN%" na tela do conceito
+- [x] a aresta só entra onde **não há nada** (D063) — medido: dos 48 pares acima de 0,80 no
+      caderno real, **41 já tinham ligação** e não viraram aresta; 7 entraram
+- [x] `engine/embed.py` (o modelo de embedding é infraestrutura, não agente: não entra no
+      catálogo de ferramentas) e `engine/similaridade.py` (o trabalho, em lote, D044)
+- [x] a oficina virou o runner de **tarefa longa** do app: `trabalho` + eventos genéricos +
+      `/api/trabalhos` (D065); o agente ganhou a ferramenta `ligar_por_similaridade`
+- [x] tabela `suspeitas` para os pares muito parecidos — e ela existe porque a lista, lida
+      das arestas, ficaria vazia **exatamente nos pares que interessam** (D067)
+- [x] **Critério de pronto:** limiar **medido** no caderno real (102 conceitos, 5151 pares):
+      mínimo 0,36 · mediana 0,56 · p90 0,68 · p99 0,80 · máximo 0,98 — daí o 0,80 da aresta
+      (~p99) e o 0,96 da suspeita; 7 arestas inferidas e 5 suspeitas medidas a olho (a
+      revisão da D066 saiu dessa leitura); o botão liga em 1s, o painel segue os passos ao
+      vivo e o interruptor diz quantas linhas tirou do desenho
 
 ---
 
@@ -1246,6 +1510,93 @@ Medido no caderno real: **38 seções — 34 do grafo, 2 do banco e 2 do modelo*
 caracteres de documento. O contador da tela é essa promessa em números: as seções de fato
 são a maior parte, e o modelo escreve duas.
 
+## 7.4 Plano do F6 — as arestas por similaridade
+
+### O que a fase entrega
+
+A terceira e última família de aresta. Hoje o grafo liga de duas maneiras, e as duas têm
+lastro: **co-ocorrência** (apareceram juntos num bloco) e **afirmada** (o material disse, e
+há trecho). As duas são cegas de um jeito específico: só vêem o que apareceu no MESMO lugar.
+
+O F6 liga o que nunca se encontrou no texto mas **fala da mesma coisa** — e, com isso, dá
+ao grafo a capacidade de dizer duas coisas que ele não sabia dizer:
+
+1. **Vizinhos que o material separou.** Dois conceitos podem viver em cadernos diferentes,
+   em fontes diferentes, e nunca ter aparecido no mesmo bloco — e ainda assim serem o mesmo
+   assunto. É a ponte que a co-ocorrência não tem como achar.
+2. **Duplicatas.** `OBD2` e `OBD-II` no mesmo grafo são dois nós para um conceito. A D041
+   resolve o caso comum (o extrator reusa o nome que já existe), mas não resolve quando o
+   extrator não repara — e aí o grafo conta duas vezes.
+
+### A regra que a fase herda
+
+O F3 estabeleceu que nada entra no grafo sem lastro, e o F4 levou a mesma régua para as
+lacunas. O F6 é o primeiro que traz uma coisa **inferida**, e é aí que a régua precisa ser
+dita em voz alta:
+
+> **A similaridade é inferida, e o app diz isso em cada lugar onde ela aparece.**
+
+Não é uma exceção à regra — é uma terceira categoria, marcada como tal. O que não se pode
+fazer é deixá-la se passar por afirmação: no banco ela tem `kind` próprio e coluna própria
+(`score`); no desenho tem traço próprio; na tela tem interruptor próprio. Quem olhar o grafo
+sabe qual linha o material sustenta e qual o app achou.
+
+### As peças, na ordem
+
+1. **`db.py`** — tabela `embeddings` e a coluna `score` em `edges`, com `_migrar()`
+   idempotente (é o que permite a coluna entrar num banco que já existe).
+2. **`knowledge.py`** — guardar/ler vetor, listar o que falta embedar, ligar com `score`,
+   listar os candidatos a mesclar. Tudo aqui, e não em quem calcula: a leitura do grafo mora
+   toda neste módulo (D024).
+3. **`engine/embed.py`** — a fábrica do modelo de embedding (`LLM_EMBED` na UI/.env, a mesma
+   precedência da D031) e o texto do conceito (D061). É `engine/` porque é a fronteira:
+   embedding fala com provedor, e provedor é LangChain.
+4. **`engine/similaridade.py`** — o trabalho: embedar o que falta, comparar os pares, criar
+   as arestas acima do limiar, devolver o resultado. Sem subgrafo: é lote, como a extração
+   (D044).
+5. **`engine/oficina.py`** — o `trabalho` e os eventos genéricos (D065), para a similaridade
+   rodar fora do turno como o documento já roda.
+6. **`engine/tools/grafo.py`** — a ferramenta `ligar_por_similaridade`, o segundo ponto de
+   entrada da mesma implementação (D024).
+7. **Rotas e UI** — o botão no painel, o resultado na tela, os três traços no desenho, a
+   legenda explicando cada um, e a lista de candidatos a mesclar com o botão que já existe.
+8. **A configuração do embedding** — os campos no modal de Modelo, com a mesma disciplina da
+   chave (D030: nunca volta ao navegador; campo vazio significa "não mexi").
+
+### O que medir antes de prometer
+
+O limiar não é escolhido: é medido no caderno real, e a medição fica registrada aqui. O que
+se olha:
+
+- a distribuição das similaridades entre todos os pares (quantos acima de cada limiar);
+- quantas arestas novas cada limiar cria, no material de verdade;
+- se as arestas que aparecem fazem sentido olhando os conceitos (é a única conferência que
+  importa: número bom com par sem sentido é ruído com estatística).
+
+O caderno real (30 conceitos principais, 102 no total) é pequeno de propósito para essa
+medição: dá para ler a lista inteira de pares e julgar.
+
+### O que a fase NÃO é
+
+- **Não é busca semântica** (RAG vetorial). O roadmap do projeto põe RAG vetorial depois do
+  grafo por conceito provar valor, e continua assim: as arestas entram no grafo, não viram
+  um índice que o agente consulta.
+- **Não é clustering.** Nada de agrupar conceitos em comunidades — isso é decisão de
+  desenho, não de dado, e o desenho já tem a física e o corte por nó.
+- **Não mescla nada sozinho.** O F6 traz a suspeita; a fusão continua sendo da pessoa.
+- **Não substitui as outras arestas.** Se o par já tem co-ocorrência ou afirmação, a
+  similaridade não entra (D063).
+
+### Critério de pronto
+
+- [ ] `ruff` limpo e os testes passando, com **embedding falso determinístico** (sem rede)
+- [ ] O vetor guardado carrega modelo e hash; trocar de modelo **recomputa**, não mistura
+- [ ] Rodar no caderno real com modelo de embedding de verdade (local, `llama-server`)
+- [ ] As arestas criadas aparecem no desenho **com o traço de inferida**, e a legenda explica
+- [ ] Um par de duplicata conhecido aparece nos candidatos a mesclar, e mesclar resolve
+- [ ] A segunda rodada não gasta chamada nenhuma (o cache prova que existe)
+- [ ] Sem embedding configurado, o botão **avisa o que falta** em vez de falhar
+
 ## 8. Fora de escopo (por decisão, não por esquecimento)
 
 - Imagem, áudio, vídeo generativo
@@ -1317,9 +1668,9 @@ O que "me atualize em cada decisão de arquitetura" significa na prática:
 
 ---
 
-## 12. Estado atual (2026-09-25 — F1 a F5 concluídas)
+## 12. Estado atual (2026-09-25 — F1 a F6 concluídas)
 
-Funcionando, com **307 testes** e ruff limpo:
+Funcionando, com **334 testes** e ruff limpo:
 
 - cadernos, fontes (link, PDF, YouTube, texto), chat com streaming e citação,
   7 templates de output, UI em três painéis com tema Frutiger Aero
@@ -1351,6 +1702,17 @@ Funcionando, com **307 testes** e ruff limpo:
   uma compilação: o segundo pedido acompanha o primeiro em vez de pagar outra chamada
 - **leva para fora**: folha de impressão clara (o tema Aero gasta tinta), Anki (TSV) e
   Obsidian com `[[wikilinks]]` — os três do mesmo passe
+- **arestas por similaridade** (F6): o app vetoriza cada conceito (nome + trechos) e liga
+  o que **fala da mesma coisa sem o material ter ligado**. No caderno de verdade: 102
+  vetores de 768 dimensões, 5151 pares comparados, **7 arestas inferidas** das 48 acima do
+  limiar (41 já tinham ligação, e a aresta não se sobrepõe — D063) e **5 suspeitas de
+  duplicata**. O traço é tracejado lilás, a etiqueta diz "parecido NN%", a procedência diz
+  `inferida por <modelo>` — e nada disso se parece com o que o material afirma
+- **a segunda rodada é de graça** (D062): vetor guardado com `(modelo, hash do texto)`;
+  medido, a rodada seguinte recalculou **0 de 102** e o clique virou instantâneo
+- **a oficina é o runner de tarefa longa do app** (D065): documento e similaridade usam o
+  mesmo mecanismo (run com id, passo ao vivo, `/api/trabalhos`), disparáveis pelo botão e
+  pela ferramenta do agente
 - motor: **agente LangGraph próprio**, dentro do app. O Hermes saiu de tudo
 - o chat responde com o modelo que **você** configura; hoje, `deepseek-v4-flash`
 - `frutiger-lm.service` (app, 8765) ativo e habilitado — `NRestarts=0`

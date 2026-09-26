@@ -210,6 +210,7 @@ def test_o_catalogo_global_tem_as_mesmas_ferramentas():
         "lacunas_do_caderno",
         "cards_para_revisar",
         "compilar_documento",
+        "ligar_por_similaridade",
     }
 
 
