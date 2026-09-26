@@ -619,7 +619,7 @@ Cada fase é utilizável sozinha. Nada de fase que só serve se a próxima exist
   conceito para existir, e conceito é do F3.
 - `engine/tools/cadernos.py`: **não existe**, e não deve existir (D039).
 
-### F3 — Grafo de conhecimento  ← CONCLUÍDA (um item pendente)
+### F3 — Grafo de conhecimento  ← CONCLUÍDA (os dez itens)
 - [x] `knowledge.py`: a loja do grafo (normalizar, achar-ou-criar, mencionar, ligar,
       mesclar, vizinhança)
 - [x] `extracao.py`: extração de conceitos (D021), com validação do trecho
@@ -1763,7 +1763,6 @@ Pendências conhecidas, e nenhuma bloqueia o uso:
 
 - **a transcrição de podcast**: 31 de 47 trechos descartados na extração, e cartões
   rasos porque o trecho vem sem contexto. É o mesmo problema nas duas pontas
-- "virar conhecimento" numa conclusão do chat (o único item do F3 que ficou de fora)
 - `web_search` não existe (D036, adiada com critério)
 - busca global por FTS5 (para a pessoa procurar; o agente já procura)
 - a detecção de contradições teve resultado zero no material real — o caminho positivo
