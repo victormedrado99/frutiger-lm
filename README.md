@@ -4,8 +4,8 @@ Notebooks de estudo com as suas fontes, conversa, outputs e um **grafo de
 conhecimento ancorado** — o que você estuda vira conceito ligado a conceito, com
 rastro até a fonte.
 
-> **Projeto independente**, sem afiliação com o Nous Research ou com a Monotype.
-> "Frutiger" aqui se refere à linhagem estética que inspira a interface.
+> **Projeto independente**, sem afiliação com a Monotype. "Frutiger" aqui se
+> refere à linhagem estética que inspira a interface.
 >
 > **Arquitetura e roadmap:** veja [PROJETO.md](PROJETO.md). É o documento-vivo do
 > projeto — toda decisão estrutural está registrada lá, com status e justificativa.
@@ -20,8 +20,8 @@ de conhecimento que persiste e se liga**. Sem imagens e sem áudio — só estru
 de estudo.
 
 > **Estado: motor próprio.** O agente é um grafo LangGraph que vive dentro do app
-> (F1 do PROJETO.md, concluída). Não é preciso instalar Hermes nem nenhum motor
-> externo — só uma **API key** de modelo, ou nada, se você usar modelo local.
+> (F1 do PROJETO.md, concluída): nada de motor ou serviço externo para subir — só
+> uma **API key** de um provedor, ou um modelo local rodando na sua máquina.
 
 ## Como funciona (hoje)
 
@@ -112,11 +112,10 @@ Para sobreviver ao logout, o linger precisa estar ativo:
 loginctl enable-linger $USER
 ```
 
-> **Nota histórica, ainda útil.** Enquanto o motor era o Hermes, este unit tinha
-> `After=hermes-gateway.service` e a versão anterior tinha `Wants=`. Isso causou um
-> loop de restart real: o gateway pode ter sido iniciado **fora** do systemd (por
-> `hermes gateway restart`), e aí cada start do app disparava um start do gateway
-> que falhava com `Gateway already running` — e o `Restart=always` do gateway
+> **Nota histórica, ainda útil.** Este unit já teve `After=` e `Wants=` para o
+> serviço do motor antigo, e isso causou um loop de restart real: aquele serviço
+> podia ter sido iniciado **fora** do systemd, e aí cada start do app disparava um
+> start que falhava com `already running` — e o `Restart=always` do outro
 > reiniciava para sempre. Fica registrado porque o mesmo padrão aparece em
 > qualquer serviço que dependa de outro capaz de subir fora do systemd.
 

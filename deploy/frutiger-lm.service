@@ -1,12 +1,12 @@
 [Unit]
 Description=Frutiger LM - notebooks de estudo com fontes, grafo de conhecimento e outputs
-# O app NAO depende mais de nenhum motor externo: o agente LangGraph vive dentro
-# dele (F1 concluida). Por isso nao ha After=hermes-gateway.service nem Wants=.
+# O app NAO depende de nenhum motor externo: o agente LangGraph vive dentro dele.
+# Por isso nao ha After= nem Wants= apontando para servico de fora.
 #
-# Isso tambem elimina por construcao a armadilha antiga: com Wants= num servico
-# que pode ter sido iniciado fora do systemd (via `hermes gateway restart`), cada
-# start do app disparava um start do gateway que falhava com "Gateway already
-# running" e entrava em loop de restart.
+# E ha um motivo concreto para manter assim: um unit que declara Wants= num servico
+# que pode ter sido iniciado FORA do systemd entra em laco — cada start do app
+# dispara um start do outro, que falha com "already running", e o Restart=always
+# dele reinicia para sempre. Nao dependa de servico que sobe por fora.
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0

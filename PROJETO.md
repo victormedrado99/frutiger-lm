@@ -28,7 +28,7 @@ Três consequências práticas:
    Modelo local não precisa nem de chave.
 
 O nome "Frutiger" se refere à linhagem estética que inspira a interface (Frutiger
-Aero). Não há afiliação com o Nous Research nem com a Monotype — ver D029.
+Aero). Não há afiliação com a Monotype — ver D029.
 
 ---
 

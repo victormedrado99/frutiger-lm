@@ -1,7 +1,8 @@
 [project]
 name = "frutiger-lm"
 version = "0.1.0"
-description = "Frutiger LM — organize notebooks de estudo, adicione fontes, converse com elas e ligue o conhecimento num grafo ancorado."
+description = "Notebooks de estudo com as suas fontes, chat e um grafo de conhecimento ancorado: cada conceito ligado ao trecho que o sustenta."
+authors = [{ name = "Victor Medrado" }]
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
