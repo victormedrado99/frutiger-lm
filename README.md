@@ -202,6 +202,17 @@ llama-server --embeddings --pooling mean \
 # e no modal: http://127.0.0.1:8080/v1 · nomic-embed-text-v1.5 · (sem chave)
 ```
 
+O unit `frutiger-embed.service` (systemd --user) existe e nasce **desligado** — ligar é
+decisão de quem usa a máquina, porque consome memória e ocupa a porta:
+
+```bash
+pkill -f 'llama-server.*--embeddings'          # se já houver um na 8080
+systemctl --user enable --now frutiger-embed.service
+```
+
+Se preferir o LM Studio (interface gráfica), não ligue o unit: aponte o bloco "Embeddings"
+para a porta dele. O app não sabe a diferença.
+
 O bloco de embedding tem uma pitfall de cliente que vale saber, porque o erro acusa o
 modelo errado: o cliente do LangChain, por padrão, tokeniza o texto **com o tokenizador da
 OpenAI** e manda IDs no lugar do texto — servidor local devolve
