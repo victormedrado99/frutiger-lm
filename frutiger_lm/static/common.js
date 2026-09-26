@@ -94,13 +94,9 @@
     }
   }
 
-  /* Abre um POST e devolve o stream para readSSE. */
-  async function postStream(path, body) {
-    var resp = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+  /* Abre uma conexão e devolve o stream para readSSE. */
+  async function stream(path, options) {
+    var resp = await fetch(path, options || {});
     if (!resp.ok) {
       var text = await resp.text();
       var msg = "HTTP " + resp.status;
@@ -108,6 +104,15 @@
       throw new Error(msg);
     }
     return resp;
+  }
+
+  /* Abre um POST e devolve o stream para readSSE. */
+  function postStream(path, body) {
+    return stream(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
   }
 
   /* ----------------------------------------------------------- conversa
@@ -227,6 +232,12 @@
         if (botao) botao.disabled = false;
         if (input) input.focus();
         if (grudar) caixa.scrollTop = caixa.scrollHeight;
+        // Gancho para a página: é assim que o painel do caderno descobre uma
+        // compilação que o CHAT mandou fazer (a ferramenta do agente dispara um run
+        // que a tela não vê nascer). A falha aqui não pode derrubar o chat.
+        if (typeof opcoes.aoTerminar === "function") {
+          try { opcoes.aoTerminar(); } catch (e) { /* o chat não é do painel */ }
+        }
       }
     }
 
@@ -264,6 +275,7 @@
     timeAgo: timeAgo,
     formatChars: formatChars,
     readSSE: readSSE,
+    stream: stream,
     postStream: postStream,
     conversa: conversa,
     openModal: openModal,

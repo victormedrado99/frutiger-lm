@@ -189,6 +189,10 @@ def test_o_catalogo_global_tem_as_mesmas_ferramentas():
     As de estudo (F4) são a exceção, e de propósito: elas ficam só no catálogo do
     caderno. "O que meu material não cobre" só faz sentido amarrado a um caderno, e
     card é revisão de UMA matéria — no chat global não haveria a que responder.
+
+    A de artefato (F5) fica pelo mesmo motivo, com um agravante: a ferramenta não
+    recebe `notebook_id` por parâmetro (D034), então no escopo global não haveria
+    sequer como dizer de qual caderno é o documento.
     """
     nomes = {t.name for t in agent.catalogo_global()}
     assert nomes == {
@@ -202,7 +206,11 @@ def test_o_catalogo_global_tem_as_mesmas_ferramentas():
     }
 
     do_caderno = {t.name for t in agent.catalogo(caderno("X"))}
-    assert do_caderno == nomes | {"lacunas_do_caderno", "cards_para_revisar"}
+    assert do_caderno == nomes | {
+        "lacunas_do_caderno",
+        "cards_para_revisar",
+        "compilar_documento",
+    }
 
 
 def test_o_prompt_global_cita_todos_os_cadernos():

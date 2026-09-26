@@ -18,6 +18,7 @@ e stream** — as mesmas mensagens saem tanto de ``invoke`` quanto de ``astream`
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -127,11 +128,18 @@ class _ExtratorFalso:
     `_generate` e `_stream` para não usar nenhum dos dois. Um objeto que faz o que
     é usado é mais honesto — e se um dia a extração passar a usar mais da
     interface, este fake quebra, o que é o aviso que se quer.
+
+    `pausa` é o tempo que ele demora para responder, e existe por um motivo estreito:
+    sem ela o fake responde **sem devolver o controle ao laço**, a construção inteira
+    termina num passo só, e o teste não consegue observar quem NÃO esperou por ela.
+    Uma chamada de modelo de verdade leva segundos; a pausa é o que dá ao teste o
+    mesmo mundo que a produção tem (ver o teste da ferramenta que dispara e sai).
     """
 
-    def __init__(self, objetos: list) -> None:
+    def __init__(self, objetos: list, pausa: float = 0.0) -> None:
         self.objetos = list(objetos)
         self.chamadas: list[list] = []
+        self.pausa = pausa
         self._i = 0
 
     def with_structured_output(self, schema: type, **kw: object) -> _ExtratorFalso:
@@ -149,9 +157,15 @@ class _ExtratorFalso:
         return self._proximo(mensagens)
 
     async def ainvoke(self, mensagens: list, **kw: object) -> object:
+        if self.pausa:
+            await asyncio.sleep(self.pausa)
         return self._proximo(mensagens)
 
 
-def extrai(objetos: list) -> _ExtratorFalso:
-    """Um extrator falso para testar a extração de conceitos sem rede e sem custo."""
-    return _ExtratorFalso(objetos)
+def extrai(objetos: list, pausa: float = 0.0) -> _ExtratorFalso:
+    """Um extrator falso para testar sem rede e sem custo.
+
+    `pausa` (segundos) simula a demora de uma chamada real — é o que permite testar
+    que quem DISPARA um artefato não fica esperando por ele.
+    """
+    return _ExtratorFalso(objetos, pausa=pausa)

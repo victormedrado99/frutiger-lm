@@ -66,7 +66,7 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D025 | O catálogo pode crescer, mas o conjunto **exposto por turno** é curado | DECIDIDO |
 | D026 | Rename completo executado: pacote, env vars, unit, banco | DECIDIDO |
 | D027 | O grafo é populado por ferramentas do agente **e** por edição manual na UI | DECIDIDO |
-| D028 | Ferramenta do agente que produz documento roda como **subgrafo**, não como chamada aninhada | DECIDIDO |
+| D028 | Ferramenta do agente que produz documento roda como **subgrafo**, não como chamada aninhada | **REVISTA pela D059** |
 | D029 | Nome "Frutiger": verificar conflito de marca antes de publicar | ABERTO |
 | D030 | A chave da API mora em `<data_dir>/model.json` (0600) e **nunca** volta ao navegador | DECIDIDO |
 | D031 | Config de modelo vem da UI; `.env` (`LLM_AGENT`) é o fallback de quem prefere versionar | DECIDIDO |
@@ -97,6 +97,8 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D056 | O desenho mostra **todas** as conexões (peso 1); o corte que sobra é de **nó** | DECIDIDO |
 | D057 | O nó é uma **bolha de vidro azul-clara** (Frutiger Aero); a cor por caderno saiu | DECIDIDO |
 | D058 | `[hidden]` é regra **global** no CSS; clique só se prova por `elementFromPoint` | DECIDIDO |
+| D059 | O artefato é um **run com id**, fora do turno — e o LangGraph não entra nisso (revê o mecanismo do D028) | DECIDIDO |
+| D060 | **UMA** ferramenta de artefato: a que existe (`compilar_documento`), e não um `gerar_documento(template)` | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -160,6 +162,11 @@ O certo: a ferramenta **dispara o subgrafo** do artefato e devolve um
 identificador; o painel direito acompanha aquele subgrafo e mostra o documento
 sendo escrito. Assim o botão e o chat compartilham a mesma implementação (D024) sem
 pagar o preço da aninhagem.
+
+> **O mecanismo desta decisão foi revisto na D059.** O princípio — a ferramenta não
+> aninha a chamada de modelo — é o que ficou de pé, e é o que importa. O *subgrafo do
+> LangGraph* foi trocado por um **run da oficina**: a razão está medida lá, e é a mesma
+> conta que a D044 já tinha feito para a extração.
 
 ### D030 — onde a chave da API mora
 
@@ -1040,6 +1047,74 @@ substituídas por uma regra só, no topo do CSS:
   entrou como área de acerto (medida junto com a decisão de colisão, que já calculava a
   caixa). A área clicável da bolha pequena foi de ~19px para **44px** de faixa.
 
+### D059 — o artefato roda fora do turno, e o id é o contrato
+
+O D028 acertou o princípio e errou o mecanismo, e a diferença só apareceu na hora de
+implementar.
+
+O princípio continua inteiro: **a ferramenta do agente não pode construir o documento
+dentro de si.** Três coisas ruins acontecem de uma vez quando ela constrói — a tela fica
+parada por meio minuto (a compilação tem uma chamada de modelo no meio), o documento não
+pode ser escrito na tela enquanto é escrito (ferramenta não emite delta: o streaming do
+agente passa por cima dela, não por dentro), e o agente ainda passa o resultado por cima,
+reformatando um documento que já estava pronto.
+
+O que mudou foi o *como*. O subgrafo do LangGraph seria **cerimônia em volta de uma
+sequência linear de passos**: o LangGraph ganha quando há ramificação, reentrada ou estado
+que precisa ser retomável, e a compilação não tem nenhum dos três — é uma linha reta que
+termina num output gravado. O preço seriam três nós, um checkpointer para uma tarefa que
+dura segundos e um `thread_id` a mais para administrar; e o valor que ele traria (eventos
+nomeados de progresso) nós já temos de graça, porque o feed da oficina é exatamente isso.
+É a mesma conta da D044, e vale aqui pelo mesmo motivo.
+
+Então o artefato virou um **run**. `oficina.iniciar()` cria a tarefa e devolve um id na
+hora; quem constrói é o run; quem quer ver segue `oficina.acompanhar(id)`. O id é o
+contrato entre os três que precisam se encontrar — quem pediu, quem acompanha (a tela) e o
+que fica no disco (o output) — e é ele que faz o botão e a ferramenta do agente serem o
+**mesmo caminho** (D024) sem pagar a aninhagem.
+
+Três consequências que ficaram no código, e as três têm teste:
+
+1. **Disparar e acompanhar são dois verbos.** `POST /compilar` devolve o run e volta na
+   hora; seguir é `GET /api/artefatos/{id}`. Se o POST transmitisse o progresso, a tela
+   teria **dois** códigos de seguir run — o do botão e o do run nascido no chat — e o
+   segundo seria o esquecido na primeira mudança.
+2. **O histórico vem antes do ao vivo.** `acompanhar` entrega os eventos que já
+   aconteceram e só então entra na fila. Quem abre a página no meio da compilação (ou
+   descobre um run já pronto) vê os passos todos; sem isso, a caixa de progresso nasceria
+   vazia e pareceria travada.
+3. **Um caderno, uma compilação.** Pedir de novo enquanto uma está em curso devolve a
+   mesma — e a ferramenta do agente **diz** que já havia uma em vez de disparar outra.
+   Duas ao mesmo tempo gastariam duas chamadas de modelo para produzir dois documentos
+   quase iguais, e o caso real é o clique duplo e o "compila isso" no chat durante uma
+   compilação.
+
+E o que a oficina **não** é: um job runner. Não há fila em disco, não há retomada depois de
+reiniciar o app, não há paralelismo. Um run vive na memória do processo e some com ele — o
+que sobrevive é o que importa, e é o documento gravado como output.
+
+### D060 — uma ferramenta de artefato, e só a que existe
+
+O catálogo do F5 prometia duas ferramentas: `gerar_documento` e `compilar_pdf`. Nenhuma
+entrou com esse nome, e as duas razões são as de sempre neste projeto:
+
+- **`compilar_pdf` não faz sentido como ferramenta.** Não há PDF no servidor: a D014
+  decidiu imprimir pelo navegador. Uma ferramenta que prometesse "salvar o PDF" estaria
+  prometendo o que só o navegador de quem está olhando sabe fazer.
+- **`gerar_documento(template=...)` prometeria o que não existe.** Há **um** template — o
+  documento compilado. Um parâmetro aceitando "plano", "faq" e "guia" seria um convite ao
+  modelo para pedir formatos que ninguém escreveu, e à pessoa para esperar por eles.
+
+Então entrou `compilar_documento`, sem parâmetros, presa ao caderno (D034) e **só no
+catálogo do caderno**: no chat global não há caderno, e a alternativa — receber
+`notebook_id` por argumento — é exatamente o que a D034 proíbe.
+
+Entrou também, na docstring que o modelo lê, a instrução que fecha o D028 pelo outro lado:
+**não repita o conteúdo do documento na resposta.** Sem ela o modelo copia o resumo e o
+desenvolvimento para o chat — que é a segunda metade do problema (o texto reformatado por
+cima). Na prova real ele obedeceu: devolveu o id, disse em que painel o documento aparece,
+e não colou o texto.
+
 ### O que o F4 não faz
 
 - **geração de mídia**: nem áudio, nem imagem, nem vídeo. Nunca esteve no escopo.
@@ -1064,13 +1139,25 @@ substituídas por uma regra só, no topo do CSS:
 5. UI: abas, a revisão, as notas
 6. prova real, no caderno de verdade
 
-### F5 — Export
-- [ ] `graphs/artefato.py`: passe de compilação (D028)
-- [ ] `engine/tools/artefatos.py`: `gerar_documento`, `compilar_pdf`
-- [ ] CSS de impressão claro (o tema Aero escuro gasta tinta)
-- [ ] estrutura: capa, sumário, resumo, conceitos citados, desenvolvimento,
+### F5 — Export  ← CONCLUÍDA
+- [x] `engine/artefato.py`: o passe de compilação — em **lista de seções**, e não como texto
+      solto, que é o que permite o sumário sair dos títulos reais e o apêndice ser montado
+      por último. Não virou `graphs/`: o subgrafo do LangGraph aqui seria cerimônia sem
+      ganho (D044), e o mecanismo do D028 foi revisto na D059
+- [x] `engine/oficina.py`: o **run com id**, fora do turno que o pediu, com feed de eventos
+      — disparar e acompanhar viram dois verbos (D059)
+- [x] `engine/tools/artefatos.py`: `compilar_documento` — dispara o run e devolve o id, sem
+      esperar o documento. A dupla prometida (`gerar_documento`/`compilar_pdf`) não entrou,
+      com o porquê medido na D060
+- [x] CSS de impressão claro (o tema Aero escuro gasta tinta)
+- [x] estrutura: capa, sumário, resumo, conceitos citados, desenvolvimento,
       lacunas abertas, fontes resumidas, apêndice de citações
-- [ ] mesmo pipeline → Markdown, Anki, Obsidian com `[[wikilinks]]`
+- [x] mesmo pipeline → Markdown (o próprio documento), **Anki** (TSV) e **Obsidian**
+      (`[[wikilinks]]`)
+- [x] **Critério de pronto:** 38 seções no caderno real (34 do grafo, 2 do banco e 2 do
+      modelo), 34.722 caracteres; folha de impressão clara; o documento pedido pelo **chat**
+      aparece no painel (provado no log do servidor: o painel pergunta, descobre o run e
+      segue); Anki e Obsidian saem do mesmo passe
 
 ### F6 — Arestas por similaridade
 - [ ] embeddings por conceito (`LLM_EMBED`)
@@ -1118,6 +1205,12 @@ desenvolvimento escritos em chamadas separadas saem com vozes diferentes e se re
   `engine/tools/artefatos.py`. O que fica pronto agora é a implementação única que os dois
   pontos de entrada vão compartilhar (D024).
 
+  > **Feito, e a etapa 2 mudou o mecanismo.** A ferramenta existe (`compilar_documento`) e
+  > dispara um **run da oficina**, com id, em vez de um subgrafo do LangGraph. O princípio
+  > do D028 é o que ficou de pé — a ferramenta não constrói o documento dentro de si — e a
+  > razão da troca está medida na **D059**. O que o botão entrega continua sendo a
+  > implementação única, e é ela que a ferramenta usa.
+
 ### As peças, na ordem
 
 1. `engine/artefato.py` — o passe de compilação. Monta o documento como uma lista de
@@ -1130,16 +1223,28 @@ desenvolvimento escritos em chamadas separadas saem com vozes diferentes e se re
 5. Formatos extras, do mesmo pipeline: **Anki** (os cartões do F4 em TSV) e **Obsidian**
    (os conceitos com `[[wikilinks]]`).
 
+E a **etapa 2**, que o plano deixou como "a seguir" e agora está feita:
+
+6. `engine/oficina.py` — o run com id, fora do turno, e o feed de eventos (D059).
+7. `engine/tools/artefatos.py` — `compilar_documento`, que dispara e devolve o id (D060).
+8. As rotas de acompanhamento: `GET /api/artefatos` (o painel pergunta) e
+   `GET /api/artefatos/{id}` (o painel segue) — o MESMO caminho para o run do botão e o
+   do chat, porque disparar e acompanhar são dois verbos.
+
 ### Critério de pronto
 
-- [ ] O documento compilado abre no navegador e imprime em PDF sem cortar seção
-- [ ] Cada conceito listado traz o **trecho literal** que o sustenta, com a fonte
-- [ ] As lacunas do documento são **as mesmas** de `knowledge.lacunas()` (nenhuma palavra
+- [x] O documento compilado abre no navegador e imprime em PDF sem cortar seção
+- [x] Cada conceito listado traz o **trecho literal** que o sustenta, com a fonte
+- [x] As lacunas do documento são **as mesmas** de `knowledge.lacunas()` (nenhuma palavra
       do modelo ali)
-- [ ] O apêndice tem **todas** as menções, e a contagem bate com o banco
-- [ ] Imprimir em preto no branco não tem fundo escuro nem texto claro
-- [ ] Saída Anki importa com pergunta e resposta; Obsidian gera os `[[links]]`
-- [ ] `ruff` limpo e os testes passando, com backend falso (sem rede, sem chave)
+- [x] O apêndice tem **todas** as menções, e a contagem bate com o banco
+- [x] Imprimir em preto no branco não tem fundo escuro nem texto claro
+- [x] Saída Anki importa com pergunta e resposta; Obsidian gera os `[[links]]`
+- [x] `ruff` limpo e os testes passando, com backend falso (sem rede, sem chave)
+
+Medido no caderno real: **38 seções — 34 do grafo, 2 do banco e 2 do modelo** — e 34.722
+caracteres de documento. O contador da tela é essa promessa em números: as seções de fato
+são a maior parte, e o modelo escreve duas.
 
 ## 8. Fora de escopo (por decisão, não por esquecimento)
 
@@ -1212,9 +1317,9 @@ O que "me atualize em cada decisão de arquitetura" significa na prática:
 
 ---
 
-## 12. Estado atual (2026-09-25 — F1 a F4 concluídas)
+## 12. Estado atual (2026-09-25 — F1 a F5 concluídas)
 
-Funcionando, com **266 testes** e ruff limpo:
+Funcionando, com **307 testes** e ruff limpo:
 
 - cadernos, fontes (link, PDF, YouTube, texto), chat com streaming e citação,
   7 templates de output, UI em três painéis com tema Frutiger Aero
@@ -1235,6 +1340,17 @@ Funcionando, com **266 testes** e ruff limpo:
 - **painel de estudo**: 9 cartões com o trecho no verso, revisão com quatro notas,
   lacunas conferíveis (sem opinião de modelo), contradições entre fontes e o registro
   de qual fonte cada resposta citou
+- **documento compilado** (F5): 38 seções no caderno de verdade — **34 do grafo, 2 do
+  banco e 2 do modelo** — com cada conceito trazendo o trecho literal de origem, as
+  lacunas saindo de `knowledge.lacunas()`, o rendimento de cada fonte e o apêndice com
+  todas as citações. O documento não é ensaio do modelo sobre o material: é o material
+  compilado, e cada seção diz de onde veio (`origem`)
+- **a compilação é um run, fora do turno** (D059): o botão dispara e volta, o painel
+  segue pelo id, e o documento pedido **no chat** aparece na tela — provado pelo log do
+  servidor (o painel pergunta em `/api/artefatos`, descobre o run e segue). Um caderno,
+  uma compilação: o segundo pedido acompanha o primeiro em vez de pagar outra chamada
+- **leva para fora**: folha de impressão clara (o tema Aero gasta tinta), Anki (TSV) e
+  Obsidian com `[[wikilinks]]` — os três do mesmo passe
 - motor: **agente LangGraph próprio**, dentro do app. O Hermes saiu de tudo
 - o chat responde com o modelo que **você** configura; hoje, `deepseek-v4-flash`
 - `frutiger-lm.service` (app, 8765) ativo e habilitado — `NRestarts=0`
@@ -1262,18 +1378,19 @@ OK  astream / astream_events / aget_state / aget_state_history
 ATENÇÃO  langgraph.prebuilt.create_react_agent DEPRECIADO (sai na v2)
 ```
 
-**F1 está concluída.** O app não depende mais de nenhum motor externo: o agente
-LangGraph vive dentro dele, o histórico é o nosso checkpointer, e o Hermes foi
-removido do código, da configuração e do unit do systemd.
+**F1 a F5 estão concluídas.** O app não depende de nenhum motor externo: o agente
+LangGraph vive dentro dele, o histórico é o nosso checkpointer, o Hermes foi removido do
+código, da configuração e do unit do systemd, e o que ele tem de diferente — o grafo
+ancorado e o documento que sai dele — está de pé e provado no material real.
 
-O que ficou de fora, por decisão: `web_search` (D036, adiada com critério) e o
-`AGENTS.md` — este último existe desde esta sessão, e o que ele registra são as
-armadilhas que o F1 pagou para descobrir.
+O que ficou de fora, por decisão: `web_search` (D036, adiada com critério) e, do F3, o
+botão "virar conhecimento" numa conclusão do chat. O `AGENTS.md` registra as armadilhas
+que as fases pagaram para descobrir — e ele cresce a cada fase, de propósito.
 
-**Próximo: F2** — `engine/tools/cadernos.py` (buscar entre cadernos), o cache de
-índices, a barra inferior que expande na home para o chat global, e o botão
-"virar conhecimento" numa conclusão da conversa.
+**Próximo: F6** — embeddings por conceito (`LLM_EMBED`) e as arestas por similaridade
+acima de limiar. É a única fase que ainda não existe, e ela **não é pré-requisito de
+nada**: o grafo se liga hoje por co-ocorrência e por aresta afirmada com trecho.
 
-A ordem importa menos do que parece: cada fase é utilizável sozinha. Mas vale
-lembrar que F3 (o grafo) é a tese do produto — é o que o Frutiger LM tem e o
-NotebookLM não tem. Se houver pressa, é para lá que ela deveria ir.
+A ordem importa menos do que parece: cada fase é utilizável sozinha. A tese do produto
+— o grafo como camada que liga, e o documento que se pode conferir — está entregue; o
+que vier depois é afinação.

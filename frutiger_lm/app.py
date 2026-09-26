@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db, ingest, knowledge, model_store, prompts, study
 from .config import settings
-from .engine import agent, artefato, checkpoint, estudo, extracao, llm
+from .engine import agent, artefato, checkpoint, estudo, extracao, llm, oficina
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("frutiger")
@@ -814,78 +814,61 @@ async def delete_output(output_id: str) -> dict[str, Any]:
 # O mesmo passe serve ao botão, ao download e à impressão. A narração é UMA chamada de
 # modelo; todo o resto do documento é consulta ao grafo e ao banco — e é a maior parte
 # dele (na prática: 36 das 38 seções do caderno de verdade).
+#
+# A construção NÃO acontece dentro desta requisição: ela é um run da oficina, com id
+# (D059). É o que permite a mesma compilação nascer do botão ou de uma ferramenta do
+# chat, e ser acompanhada de fora — inclusive por quem não foi quem pediu.
+
+
+async def _acompanhar_run(run_id: str) -> AsyncIterator[str]:
+    """O run em SSE. Quem sabe o que é `Run` é a oficina; aqui só se traduz."""
+    async for item in oficina.oficina.acompanhar(run_id):
+        yield _sse(item["evento"], item["dados"])
 
 
 @app.post("/api/notebooks/{notebook_id}/compilar")
-async def compilar_documento(notebook_id: str, sem_modelo: bool = False) -> StreamingResponse:
-    """Compila o documento do caderno, avisando cada passo pela tela.
+async def compilar_documento(notebook_id: str, sem_modelo: bool = False) -> dict[str, Any]:
+    """Dispara a compilação e devolve o run — **sem esperar o documento**.
+
+    Disparar e acompanhar são dois verbos: este só cria o run e volta na hora; quem
+    quer ver o documento sendo montado segue `GET /api/artefatos/{run_id}`. Foi de
+    propósito que o botão e o chat usam o MESMO caminho de acompanhamento (D024) — se
+    o POST transmitisse o progresso, o painel teria dois códigos de seguir run, e o do
+    chat seria o segundo a ser esquecido numa mudança.
 
     `sem_modelo=true` monta só as seções de fato — conceitos, lacunas, fontes e
     citações — e não gasta chamada nenhuma. Serve para ver a estrutura antes de pagar
     por ela.
 
-    O progresso vem por fila, e não por `yield` direto: a compilação é uma corrotina
-    que precisa mandar mensagem no meio, e quem está dentro dela não pode dar `yield`
-    por quem está fora. A tarefa empurra, o gerador entrega.
+    Se já houver uma compilação em curso neste caderno, ela é reaproveitada: o segundo
+    clique acompanha a primeira em vez de pagar uma segunda chamada de modelo (D059).
     """
     _notebook_or_404(notebook_id)
+    run = oficina.oficina.iniciar(notebook_id, origem="botao", com_narrativa=not sem_modelo)
+    return run.resumo()
 
-    async def stream() -> AsyncIterator[str]:
-        fila: asyncio.Queue[str | None] = asyncio.Queue()
 
-        async def emitir(passo: str, mensagem: str) -> None:
-            await fila.put(_sse("compilando.passo", {"passo": passo, "mensagem": mensagem}))
+@app.get("/api/artefatos")
+async def artefatos(notebook_id: str | None = None) -> list[dict[str, Any]]:
+    """As compilações que a tela pode mostrar — terminadas inclusive, por um tempo.
 
-        async def trabalhar() -> None:
-            try:
-                documento = await artefato.compilar(
-                    notebook_id, emitir=emitir, com_narrativa=not sem_modelo
-                )
-            except llm.ModeloNaoConfigurado as exc:
-                await fila.put(_sse("error", {"message": str(exc)}))
-                await fila.put(_sse("done", {}))
-                await fila.put(None)
-                return
-            except Exception as exc:
-                log.exception("falha ao compilar o documento")
-                await fila.put(
-                    _sse("error", {"message": f"{type(exc).__name__}: {str(exc)[:300]}{llm.explicar(exc)}"})
-                )
-                await fila.put(_sse("done", {}))
-                await fila.put(None)
-                return
+    É por aqui que o painel descobre uma compilação nascida no CHAT: o botão dispara a
+    sua e acompanha direto, mas quando quem pediu foi a ferramenta do agente, o painel
+    não fica sabendo de nada — ele precisa perguntar.
+    """
+    return oficina.oficina.ativos(notebook_id)
 
-            saida = db.create_output(
-                notebook_id,
-                template="compilado",
-                title=f"Documento compilado — {documento.titulo}",
-                content_md=documento.markdown(),
-            )
-            await fila.put(
-                _sse(
-                    "output.completed",
-                    {
-                        "id": saida["id"],
-                        "title": saida["title"],
-                        "template": "compilado",
-                        "content_md": saida["content_md"],
-                        "secoes": len(documento.secoes),
-                        "contagem": documento.contagem(),
-                    },
-                )
-            )
-            await fila.put(_sse("done", {}))
-            await fila.put(None)
 
-        tarefa = asyncio.create_task(trabalhar())
-        while True:
-            item = await fila.get()
-            if item is None:
-                break
-            yield item
-        await tarefa
-
-    return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)
+@app.get("/api/artefatos/{run_id}")
+async def acompanhar_artefato(run_id: str) -> StreamingResponse:
+    """Acompanha um run pelo id, tenha ele nascido de onde for. O histórico vem junto."""
+    if oficina.oficina.obter(run_id) is None:
+        raise HTTPException(
+            404, "Compilação não encontrada — ela sai da lista algum tempo depois de terminar."
+        )
+    return StreamingResponse(
+        _acompanhar_run(run_id), media_type="text/event-stream", headers=SSE_HEADERS
+    )
 
 
 @app.get("/api/notebooks/{notebook_id}/exportar/{formato}")

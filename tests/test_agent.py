@@ -48,6 +48,8 @@ def test_o_catalogo_do_caderno_tem_leitura_e_web():
         # sentido amarrado a um, e card é revisão de UMA matéria
         "lacunas_do_caderno",
         "cards_para_revisar",
+        # a de artefato (F5), presa pelo mesmo motivo: documento é de UM caderno
+        "compilar_documento",
     }
 
 

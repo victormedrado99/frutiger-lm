@@ -48,7 +48,7 @@ Mapeamento dos conceitos:
 | Caderno        | linha no SQLite + um `thread_id` no checkpointer             |
 | Fontes         | arquivos `.txt` em `data/notebooks/<id>/fontes/` + SQLite    |
 | Chat           | streaming (SSE) do agente, traduzido em `engine/agent.py`    |
-| Outputs        | documento Markdown gerado e salvo, versionado                |
+| Outputs        | documento Markdown salvo; o compilado sai do grafo, não do modelo |
 | Modelo + chave | `data/model.json` (0600) ou `LLM_AGENT` no `.env`            |
 
 ## Requisitos
@@ -124,10 +124,18 @@ ou simplesmente rodar `uv run frutiger-lm` quando precisar.
      Cada fonte tem um interruptor: desligue para tirá-la do contexto sem apagar.
    - **Chat** (meio): pergunte. As respostas citam as fontes (`[1]`, `[2]`) e você
      vê quais ferramentas o agente usou enquanto trabalha.
-   - **Outputs** (direita): gere um documento a partir das fontes — resumo
-     executivo, guia de estudo, FAQ, linha do tempo, mapa de conceitos, tabela
-     comparativa ou plano de aprendizado. Fica salvo, versionado e exportável em
-     `.md`. É este painel que a F4 reformula.
+   - **Painel** (direita), em duas abas:
+     - **Gerar** — o **documento compilado**: o material reunido num documento, com
+       cada conceito acompanhado do trecho literal que o sustenta, as lacunas, o
+       rendimento de cada fonte e o apêndice com todas as citações. Só o resumo e o
+       desenvolvimento são escritos pelo modelo; o resto é consulta ao grafo, e cada
+       seção diz de onde veio. Também saem daqui a folha de impressão (para salvar em
+       PDF pelo navegador), os cartões para o **Anki** e as notas para o **Obsidian**.
+       Os sete modelos de texto abaixo são o que o modelo escreve sozinho.
+       A compilação roda **fora do turno**: você pode pedir pelo botão ou pelo chat, e
+       ela aparece aqui enquanto é escrita — a mesma compilação, o mesmo código.
+     - **Estudar** — os cartões gerados dos conceitos (com o trecho no verso), a
+       revisão do dia com quatro notas, as lacunas conferíveis e as notas por conceito.
 
 ### Como o agente "lê" as fontes
 
@@ -144,9 +152,10 @@ O limite fica em `FRUTIGER_INLINE_LIMIT` no `.env`.
 ### Custo
 
 O prompt de sistema é **nosso** e pequeno: as regras de conduta, o contexto do
-caderno e o schema das quatro ferramentas expostas (`listar_fontes`, `ler_fonte`,
-`buscar_nas_fontes`, `web_extract`). Não há catálogo de ferramentas genéricas
-carregado a cada turno — o conjunto exposto é curado por caderno.
+caderno e o schema das ferramentas expostas naquele contexto (`listar_fontes`,
+`ler_fonte`, `buscar_nas_fontes`, `web_extract`, as três do grafo, as de estudo e a
+compilação). Não há catálogo de ferramentas genéricas carregado a cada turno — o
+conjunto exposto é curado por caderno (D025).
 
 O que domina o custo, então, é o tamanho das suas fontes: caderno pequeno vai
 inteiro no prompt; caderno grande manda só o índice e o agente lê por ferramenta.

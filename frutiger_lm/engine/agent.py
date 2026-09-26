@@ -26,6 +26,7 @@ from langchain_core.tools import BaseTool
 from ..db import get_notebook
 from ..prompts import build_global_prompt, build_notebook_prompt
 from . import llm
+from .tools.artefatos import ferramentas_de_artefatos
 from .tools.estudo import ferramentas_de_estudo
 from .tools.grafo import ferramentas_de_grafo
 from .tools.leitura import Escopo, ferramentas_de_leitura
@@ -43,13 +44,15 @@ def catalogo(notebook_id: str) -> list[BaseTool]:
 
     As de grafo entram nos dois catálogos sem escopo: o grafo é a camada que liga, e o
     conceito que aparece em dois cadernos é o que há de mais interessante nele (D045).
-    As de estudo são presas ao caderno, porque a pergunta é sobre ele.
+    As de estudo são presas ao caderno, porque a pergunta é sobre ele. A de artefato
+    também é presa — e só existe aqui: documento é de um caderno (D034).
     """
     return [
         *ferramentas_de_leitura(Escopo.do_caderno(notebook_id)),
         *ferramentas_de_web(),
         *ferramentas_de_grafo(),
         *ferramentas_de_estudo(notebook_id),
+        *ferramentas_de_artefatos(notebook_id),
     ]
 
 
@@ -61,7 +64,10 @@ def catalogo_global() -> list[BaseTool]:
     um. Duas listagens parecidas só dariam ao modelo a chance de escolher a errada.
 
     As de estudo ficam de fora: "o que meu material não cobre" só faz sentido amarrado
-    a um caderno, e um card é revisão de UMA matéria.
+    a um caderno, e um card é revisão de UMA matéria. A de artefato também fica: um
+    documento é de um caderno, e a ferramenta não recebe `notebook_id` por parâmetro
+    (D034) — oferecê-la aqui exigiria inventar um jeito de escolher o caderno por
+    argumento, que é justamente o que a decisão proíbe.
     """
     return [
         *ferramentas_de_leitura(Escopo.todos()),

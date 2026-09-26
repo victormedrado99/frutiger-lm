@@ -8,8 +8,10 @@ dois divergirem, o PROJETO.md ganha.
 
 App de estudo com fontes próprias: você joga PDF/link/YouTube/texto, conversa com
 o material, gera documentos, e (a partir do F3) constrói um grafo de conhecimento
-ancorado nas fontes. FastAPI + SQLite + UI vanilla, sem build. O agente é um grafo
-LangGraph que vive **dentro** do app — não há motor externo.
+ancorado nas fontes. É do grafo (F5) que sai o **documento compilado**: conceitos com
+o trecho literal de origem, lacunas e apêndice de citações, com só duas seções escritas
+pelo modelo. FastAPI + SQLite + UI vanilla, sem build. O agente é um grafo LangGraph que
+vive **dentro** do app — não há motor externo.
 
 ## Comandos
 
@@ -65,19 +67,30 @@ frutiger_lm/
   ingest.py         extração (PDF, URL, YouTube, texto)
   prompts.py        BASE_RULES + os 7 templates de output
   model_store.py    a chave da API e a config do modelo (data/model.json, 0600)
+  knowledge.py      a loja do grafo: conceitos, menções, arestas, lacunas
+  study.py          cartões e o SRS, lógica pura (sem modelo)
   engine/           A FRONTEIRA — só aqui entra LangChain
     llm.py            fábrica de modelo + tradução de erro do provedor
-    fake.py           modelo falso, com paridade bloco/stream
+    fake.py           modelo falso, com paridade bloco/stream (e `pausa`)
     checkpoint.py     AsyncSqliteSaver; 1 caderno = 1 thread_id
     agent.py          o agente; prompt, catálogo, eventos e histórico —
                       `montar()` para um caderno, `montar_global()` para todos
+    extracao.py       conceitos a partir de um texto (F3)
+    estudo.py         o card a partir do conceito e a comparação entre fontes (F4)
+    artefato.py       o passe de compilação do documento (F5), em lista de seções
+    oficina.py        os artefatos EM CONSTRUÇÃO: run com id, fora do turno (D059)
     tools/leitura.py  listar_fontes, ler_fonte, buscar_nas_fontes — presas a um
                       `Escopo` (um caderno ou todos)
     tools/web.py      web_extract
+    tools/grafo.py    as ferramentas do grafo (globais, D045)
+    tools/estudo.py   lacunas e cards (presas ao caderno)
+    tools/artefatos.py compilar_documento — dispara o run e devolve o id (D060)
   static/           UI vanilla (sem build). Se mexer no tema, o CSS é o único
                     lugar: os seletores são os mesmos desde antes.
                     `common.js` tem o `conversa()` — o chat do caderno e o dock da
                     home usam o MESMO, para não divergirem
+                    `imprimir.html` + `imprimir.css` são a folha de papel (F5):
+                    tema CLARO, porque o Aero escuro imprime ilegível
 ```
 
 ## Como adicionar uma ferramenta
@@ -212,6 +225,26 @@ frutiger_lm/
 - **`registrar_mencao` deduplica** menção idêntica (mesmo conceito + fonte + trecho).
   Repetir a mesma frase N vezes dá UMA menção — o que importa ao montar dado de teste à
   mão: para um conceito ter 2 menções, são precisos 2 trechos diferentes.
+- **O fake que responde sem devolver o controle ao laço esconde o defeito que você quer
+  testar.** Sem pausa, o extrator falso responde sem nenhum `await` que ceda o laço — e a
+  compilação inteira (uma chamada de modelo inclusa) termina **num passo só do
+  agendador**. O teste da ferramenta que "dispara e sai de cena" passava a ver o documento
+  pronto no instante seguinte ao disparo e acusava o OPOSTO do que ele queria provar. Use
+  `fake.extrai([...], pausa=0.05)`: é o que dá ao teste o mesmo mundo que a produção tem.
+- **Caderno de teste sem conceito "principal" não gera documento narrativo.** O corte da
+  D054 (2+ menções) é aplicado antes da chamada de modelo, então um caderno de teste com
+  uma menção por conceito faz o passe **pular o modelo** — e aí o teste que devia provar
+  "o documento é escrito pelo modelo" prova outra coisa, em silêncio. Monte o dado de
+  teste com dois trechos por conceito.
+- **Disparar e acompanhar são dois verbos (D059).** `POST /compilar` devolve o run e
+  volta; seguir é `GET /api/artefatos/{run_id}`. A tela tem UM caminho de acompanhar, e o
+  vigia que pergunta por compilação em curso existe por um motivo estreito: uma
+  compilação disparada **pelo chat** nasce sem que a aba saiba. Se você criar um segundo
+  caminho de acompanhamento (um POST que transmite, por exemplo), o do chat é o que vai
+  ser esquecido na primeira mudança.
+- **Abrir um run no meio não perde passo, e isso é do `acompanhar`.** O gerador entrega o
+  histórico **antes** de entrar na fila. Se você mexer nele, mantenha essa ordem: sem ela
+  o painel que chega atrasado mostra uma caixa vazia e parece que a compilação travou.
 
 ## Validar com o modelo real
 

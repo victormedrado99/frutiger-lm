@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from frutiger_lm import db  # noqa: E402
 from frutiger_lm.config import settings  # noqa: E402
+from frutiger_lm.engine import oficina  # noqa: E402
 
 db.init_db()
 
@@ -60,6 +61,10 @@ def estado_limpo():
                 conn.execute(f"DELETE FROM {tabela}")  # noqa: S608 (nome fixo)
         for alvo in alvos:
             alvo.unlink(missing_ok=True)
+        # A oficina guarda runs em MEMÓRIA (não em tabela), então ela também precisa
+        # ser zerada — é o mesmo vazamento que o `checkpoints.db` causava, só que sem
+        # arquivo para denunciar.
+        oficina.oficina.limpar()
 
     limpar()
     yield

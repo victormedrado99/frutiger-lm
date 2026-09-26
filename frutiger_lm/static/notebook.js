@@ -218,6 +218,10 @@
     input: els.input,
     send: els.send,
     url: "/api/notebooks/" + NB_ID + "/chat",
+    // Depois de cada turno o painel pergunta se há compilação neste caderno: é assim
+    // que o documento pedido PELO CHAT aparece na tela (a ferramenta dispara o run
+    // sem passar por aqui).
+    aoTerminar: function () { procurarCompilacao(); },
   });
 
   function introDoCaderno() {
@@ -387,47 +391,99 @@
 
   /* ------------------------------------------- o documento compilado (F5)
 
-     O progresso importa mais aqui do que nos outros botões: a compilação tem uma
-     chamada de modelo no meio, e sem retorno na tela o botão parece morto por meio
-     minuto. Cada passo que o motor manda aparece na hora. */
+     A compilação pode nascer de dois lugares: do botão abaixo ou de uma ferramenta do
+     chat ("compila o documento deste caderno"). Nos dois casos quem constrói é a
+     OFICINA do motor, fora do turno, com um id — e é por isso que acompanhar é um
+     código só aqui.
+
+     O progresso importa mais do que nos outros botões: a compilação tem uma chamada de
+     modelo no meio, e sem retorno na tela ela parece morta por meio minuto. */
+
+  var runSeguido = null;
+  var passosDaCompilacao = [];
+  var vigia = null;
+
+  function pintarCompilacao(extra) {
+    var caixa = document.getElementById("compilar-progresso");
+    caixa.hidden = false;
+    caixa.innerHTML = passosDaCompilacao.map(C.escapeHtml).join("<br>") +
+      (extra ? "<br>" + extra : "");
+  }
+
+  function eventoDaCompilacao(nome, dados) {
+    if (nome === "compilando.passo") {
+      passosDaCompilacao.push("· " + dados.mensagem);
+      pintarCompilacao("");
+    } else if (nome === "output.completed") {
+      var c = dados.contagem || {};
+      pintarCompilacao(
+        "<b>Pronto:</b> " + dados.secoes + " seções — " +
+        (c.grafo || 0) + " do grafo, " + (c.banco || 0) + " do banco e " +
+        (c.modelo || 0) + " do modelo.<br>" +
+        '<a href="#" id="abrir-compilado">Abrir o documento</a>'
+      );
+      document.getElementById("abrir-compilado").addEventListener("click", function (ev) {
+        ev.preventDefault();
+        showOutput(dados.id, dados.title, dados.content_md);
+      });
+      loadOutputs();
+    } else if (nome === "error") {
+      pintarCompilacao('<span style="color:var(--danger)">' + C.escapeHtml(dados.message) + "</span>");
+    }
+  }
+
+  /* Segue um run até o fim, venha ele do botão ou do chat.
+
+     O stream traz o histórico ANTES do ao vivo (é o que a oficina faz), então chegar
+     atrasado não perde passo: quem abre a página no meio de uma compilação vê os
+     passos que já passaram, e não uma caixa vazia. */
+  async function acompanharCompilacao(runId) {
+    if (runSeguido === runId) return;
+    runSeguido = runId;
+    passosDaCompilacao = [];
+    pintarCompilacao("");
+    try {
+      var resp = await C.stream("/api/artefatos/" + runId);
+      await C.readSSE(resp, eventoDaCompilacao);
+    } catch (err) {
+      pintarCompilacao('<span style="color:var(--danger)">' + C.escapeHtml(err.message) + "</span>");
+    } finally {
+      runSeguido = null;
+      loadOutputs();
+    }
+  }
+
+  /* O vigia: o painel PERGUNTANDO se há compilação neste caderno.
+
+     Ele existe por um motivo estreito: quando o pedido nasce no chat, a ferramenta do
+     agente dispara um run que esta aba não vê nascer. O botão não precisa de vigia —
+     ele já sabe o id. Perguntar é uma consulta barata, e o ciclo se encerra sozinho
+     quando não há mais nada rodando. */
+  async function procurarCompilacao() {
+    if (runSeguido) return;
+    try {
+      var runs = await C.api("/api/artefatos?notebook_id=" + encodeURIComponent(NB_ID));
+      var emCurso = (runs || []).filter(function (r) { return r.estado === "rodando"; })[0];
+      if (!emCurso) return;
+      await acompanharCompilacao(emCurso.id);
+      clearTimeout(vigia);
+      vigia = setTimeout(procurarCompilacao, 3000);
+    } catch (err) {
+      /* sem vigia o app continua utilizável: só não se descobre a compilação do chat */
+    }
+  }
 
   document.getElementById("btn-compilar").addEventListener("click", async function () {
     var botao = this;
-    var caixa = document.getElementById("compilar-progresso");
     botao.disabled = true;
-    caixa.hidden = false;
-    caixa.textContent = "Começando…";
-    var passos = [];
-
-    function pintar(extra) {
-      caixa.innerHTML = passos.map(C.escapeHtml).join("<br>") + (extra ? "<br>" + extra : "");
-    }
-
     try {
-      var resp = await C.postStream("/api/notebooks/" + NB_ID + "/compilar", {});
-      await C.readSSE(resp, function (nome, dados) {
-        if (nome === "compilando.passo") {
-          passos.push("· " + dados.mensagem);
-          pintar("");
-        } else if (nome === "output.completed") {
-          var c = dados.contagem || {};
-          pintar(
-            "<b>Pronto:</b> " + dados.secoes + " seções — " +
-            (c.grafo || 0) + " do grafo, " + (c.banco || 0) + " do banco e " +
-            (c.modelo || 0) + " do modelo.<br>" +
-            '<a href="#" id="abrir-compilado">Abrir o documento</a>'
-          );
-          document.getElementById("abrir-compilado").addEventListener("click", function (ev) {
-            ev.preventDefault();
-            showOutput(dados.id, dados.title, dados.content_md);
-          });
-          loadOutputs();
-        } else if (nome === "error") {
-          pintar('<span style="color:var(--danger)">' + C.escapeHtml(dados.message) + "</span>");
-        }
-      });
+      // Dispara e volta na hora: o id vem daqui e o acompanhamento é o mesmo caminho
+      // que o vigia usa.
+      var run = await C.api("/api/notebooks/" + NB_ID + "/compilar", { method: "POST" });
+      acompanharCompilacao(run.id);
     } catch (err) {
-      pintar('<span style="color:var(--danger)">' + C.escapeHtml(err.message) + "</span>");
+      passosDaCompilacao = [];
+      pintarCompilacao('<span style="color:var(--danger)">' + C.escapeHtml(err.message) + "</span>");
     } finally {
       botao.disabled = false;
     }
@@ -827,6 +883,9 @@
       await Promise.all([loadTemplates(), loadOutputs(), loadStatus()]);
       await loadMessages();
       els.input.focus();
+      // Se a página foi aberta (ou recarregada) no meio de uma compilação, ela é
+      // retomada: o run vive no motor, não nesta aba.
+      procurarCompilacao();
     } catch (err) {
       C.toast("Erro ao abrir o caderno: " + err.message, "err", 9000);
     }
