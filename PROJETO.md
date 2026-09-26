@@ -106,6 +106,7 @@ Status: `DECIDIDO` · `PROPOSTO` (falta seu OK) · `ABERTO` (a discutir) ·
 | D065 | A oficina passa a ser o runner de **tarefa longa** do app: `trabalho` + eventos genéricos | DECIDIDO |
 | D066 | Parecidos **demais** viram uma lista de suspeita de duplicata — REVISTA pela D067 | DECIDIDO |
 | D067 | A suspeita é **convite a olhar**, não atalho para mesclar: a medição mostrou que parecido não é igual | DECIDIDO |
+| D068 | "Virar conhecimento" guarda a **conclusão do chat** como menção ancorada — e a menção diz que veio da CONVERSA | DECIDIDO |
 
 ### D003 e D008 — REVERTIDAS (mantidas para registro)
 
@@ -630,9 +631,13 @@ Cada fase é utilizável sozinha. Nada de fase que só serve se a próxima exist
 - [x] painel do grafo na home, com legenda que explica o desenho
 - [x] tela do conceito: menções, trecho de origem, cadernos onde aparece
 - [x] edição na UI: mesclar, renomear, apagar (mesma implementação das tools — D024)
-- [ ] "virar conhecimento" numa conclusão do chat — **pendente**: a tabela `mentions`
-      já aceita `thread_id`/`message_id`, mas o botão não foi feito. É o único item
-      que ficou de fora, e é o menos importante dos dez.
+- [x] "virar conhecimento" numa conclusão do chat — a última resposta vira conhecimento do
+      caderno: passa pelo MESMO extrator das fontes (`extrair_conversa`) e a menção leva
+      `thread_id` + `message_id` em vez de `source_id`. O texto vem do **checkpointer**
+      (o navegador não escolhe o que vira conhecimento) e a menção se declara "dita pelo
+      modelo" na tela do conceito (D068). Provado com modelo real: a conclusão do chat
+      virou 3 conceitos (KWP2000, ISO 14230, K-Line) com o trecho literal da resposta, o
+      `message_id` da mensagem exata, e a menção lilás ao lado das ciano do material
 - [x] **Critério de pronto:** 102 conceitos extraídos do caderno real, com 156
       menções ancoradas em trecho; painel do conceito com os trechos; 0 conceito sem
       âncora
@@ -1332,6 +1337,38 @@ são o mesmo conceito?" não deixa de existir porque o material já os ligou.
 
 A suspeita continua valendo o que valia: é um lugar para OLHAR, e a pessoa decide.
 
+### D068 — "virar conhecimento" guarda a conclusão, e a menção diz que veio da conversa
+
+É o último item do F3, e o único que ficou pendente: a tabela `mentions` nasceu com
+`thread_id` e `message_id` justamente para ele.
+
+A tese do produto é que o conhecimento **sobrevive à conversa** — mas até aqui uma boa
+resposta do chat morria no chat. O botão resolve isso reaproveitando o caminho que já existe:
+a conclusão passa pelo MESMO extrator das fontes (`extracao.extrair_conversa`, que usa
+`extrair_bloco` com o vocabulário do grafo), então os conceitos que ela cita entram no grafo
+com a mesma exigência de sempre — **trecho literal, conferido contra o texto de onde saiu**.
+O que muda é a âncora: em vez de `source_id`, a menção leva `thread_id` + `message_id`.
+
+Cinco decisões dentro desta, e cada uma tem um motivo:
+
+- **Só no chat do caderno.** `mentions.notebook_id` é NOT NULL, e um conceito precisa de um
+  caderno para viver. No chat global não há em que ancorar; perguntar ao modelo "de qual
+  caderno é isso?" seria inventar proveniência, que é o defeito que este projeto mais evita.
+  O botão simplesmente não existe lá.
+- **Só na conclusão que acabou de chegar**, e não em cada resposta do histórico: guardar é
+  uma ação de agora ("essa resposta presta"), e um botão em vinte mensagens antigas é ruído.
+- **O texto vem do CHECKPOINTER, não do navegador.** A rota pega a última mensagem do
+  assistente com texto naquele `thread_id` e usa o conteúdo dela. Assim `message_id` é exato
+  por construção (não há "achar por semelhança"), e o que entra no grafo é exatamente o que o
+  modelo disse — o cliente não tem como mandar outro texto.
+- **A menção diz que veio da conversa.** É a mesma disciplina da aresta inferida (D063): um
+  trecho dito pelo MODELO não pode aparecer como se fosse trecho do MATERIAL. A tela do
+  conceito marca essas menções com um selo, e a aresta afirmada que sai daí registra
+  `quem="conversa"` na procedência.
+- **Não virou ferramenta do agente.** O agente não decide o que vira conhecimento: se ele
+  próprio arquivasse as respostas que achasse boas, o grafo cresceria por auto-avaliação —
+  e a pessoa perderia o lugar onde ela diz "isto presta".
+
 ### O que só a medição real ensinou (F6)
 
 Três coisas que nenhum teste pegaria, porque os três casos passam em teste e falham no uso.
@@ -1668,9 +1705,9 @@ O que "me atualize em cada decisão de arquitetura" significa na prática:
 
 ---
 
-## 12. Estado atual (2026-09-25 — F1 a F6 concluídas)
+## 12. Estado atual (2026-09-25 — F1 a F6 concluídas, e o F3 completo)
 
-Funcionando, com **334 testes** e ruff limpo:
+Funcionando, com **343 testes** e ruff limpo:
 
 - cadernos, fontes (link, PDF, YouTube, texto), chat com streaming e citação,
   7 templates de output, UI em três painéis com tema Frutiger Aero
@@ -1713,6 +1750,11 @@ Funcionando, com **334 testes** e ruff limpo:
 - **a oficina é o runner de tarefa longa do app** (D065): documento e similaridade usam o
   mesmo mecanismo (run com id, passo ao vivo, `/api/trabalhos`), disparáveis pelo botão e
   pela ferramenta do agente
+- **"virar conhecimento" no chat do caderno** (D068, o último item do F3): a conclusão que
+  acabou de chegar vira conceitos no grafo, ancorados no **trecho literal da própria
+  resposta**, com `thread_id` + `message_id` no lugar do `source_id`. Provado com modelo
+  real: 3 conceitos de uma resposta, e a menção aparece na tela do conceito marcada como
+  "dita pelo modelo" (lilás) ao lado das do material (ciano)
 - motor: **agente LangGraph próprio**, dentro do app. O Hermes saiu de tudo
 - o chat responde com o modelo que **você** configura; hoje, `deepseek-v4-flash`
 - `frutiger-lm.service` (app, 8765) ativo e habilitado — `NRestarts=0`

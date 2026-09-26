@@ -48,6 +48,7 @@ Mapeamento dos conceitos:
 | Caderno        | linha no SQLite + um `thread_id` no checkpointer             |
 | Fontes         | arquivos `.txt` em `data/notebooks/<id>/fontes/` + SQLite    |
 | Chat           | streaming (SSE) do agente, traduzido em `engine/agent.py`    |
+| Conhecimento   | a conclusão do chat pode virar conceito no grafo, ancorada no trecho literal da própria resposta |
 | Outputs        | documento Markdown salvo; o compilado sai do grafo, não do modelo |
 | Modelo + chave | `data/model.json` (0600) ou `LLM_AGENT` no `.env`            |
 | Embeddings     | mesmo arquivo (`embed_*`), opcional — só para as arestas por similaridade |
@@ -132,7 +133,11 @@ ou simplesmente rodar `uv run frutiger-lm` quando precisar.
    - **Fontes** (esquerda): adicione link, PDF, vídeo do YouTube ou texto colado.
      Cada fonte tem um interruptor: desligue para tirá-la do contexto sem apagar.
    - **Chat** (meio): pergunte. As respostas citam as fontes (`[1]`, `[2]`) e você
-     vê quais ferramentas o agente usou enquanto trabalha.
+     vê quais ferramentas o agente usou enquanto trabalha. Quando uma resposta vale,
+     embaixo dela há **"virar conhecimento"**: o modelo relê a resposta, extrai os
+     conceitos e cada um entra no grafo com o **trecho literal da própria resposta** por
+     âncora. A resposta deixa de morrer no chat — e a tela do conceito marca essas
+     menções como **"dita pelo modelo"**, para nunca passarem por trecho de fonte.
    - **Painel** (direita), em duas abas:
      - **Gerar** — o **documento compilado**: o material reunido num documento, com
        cada conceito acompanhado do trecho literal que o sustenta, as lacunas, o

@@ -736,12 +736,18 @@
       return "<p style='color:var(--muted);font-size:13px'>Sem menção registrada.</p>";
     }
     return mencoes.map(function (m) {
+      /* A menção que veio da CONVERSA tem que se distinguir da que veio do material
+         (D068): o trecho dela é fala do MODELO. Um trecho de modelo com a mesma cara
+         de trecho de fonte é o defeito que este projeto mais evita — a mesma
+         disciplina que separa a aresta inferida da afirmada (D063). */
+      var daConversa = !m.source_id && !m.output_id;
       var onde = m.source_id
         ? 'fonte "' + C.escapeHtml(m.source_title || "?") + '"'
         : m.output_id
           ? 'output "' + C.escapeHtml(m.output_title || "?") + '"'
-          : "conversa";
-      return '<div class="mencao"><span class="de-onde">' + onde +
+          : "conversa — dita pelo modelo";
+      return '<div class="mencao' + (daConversa ? " da-conversa" : "") + '">' +
+        '<span class="de-onde">' + onde +
         " · caderno “" + C.escapeHtml(m.notebook_title || "?") + "”</span>" +
         C.escapeHtml(m.excerpt) + "</div>";
     }).join("");

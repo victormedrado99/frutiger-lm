@@ -186,6 +186,7 @@
       var corpo = no.querySelector(".body");
       var acumulado = "";
       var agendado = false;
+      var falhou = false;
       var grudar = pertoDoFim();
 
       // Um requestAnimationFrame por lote de deltas: pintar a cada pedaço
@@ -215,12 +216,15 @@
             if (dados.content) acumulado = dados.content;
             corpo.innerHTML = window.renderMarkdown(acumulado);
           } else if (nome === "error") {
+            falhou = true;
             corpo.innerHTML = window.renderMarkdown(acumulado) +
               '<p style="color:var(--danger)">⚠ ' + escapeHtml(dados.message || "erro") + "</p>";
           } else if (nome === "done") {
             corpo.innerHTML = acumulado
               ? window.renderMarkdown(acumulado)
               : '<span style="color:var(--muted)">(o motor não devolveu texto)</span>';
+            // Só conclusão que deu certo pode virar conhecimento.
+            if (acumulado && !falhou) convidarAConhecimento(no);
           }
         });
         return true;
@@ -245,6 +249,31 @@
       if (!input) return;
       input.style.height = "auto";
       input.style.height = Math.min(input.scrollHeight, 220) + "px";
+    }
+
+    /* O convite a guardar a conclusão (F3/D068).
+
+       Existe só na resposta que acabou de chegar, e só quando a página pede: o chat do
+       caderno sabe em que caderno ancorar, o chat global não tem caderno nenhum. Não é
+       um botão em cada mensagem antiga — guardar é uma ação de agora. */
+    function convidarAConhecimento(balao) {
+      if (typeof opcoes.aoVirarConhecimento !== "function") return;
+      var alvo = balao.querySelector(".msg-content");
+      if (!alvo || alvo.querySelector(".msg-acoes")) return;
+      var linha = document.createElement("div");
+      linha.className = "msg-acoes";
+      var acao = document.createElement("button");
+      acao.className = "btn btn-ghost btn-sm";
+      acao.type = "button";
+      acao.textContent = "virar conhecimento";
+      acao.title = "Guardar esta conclusão no grafo deste caderno: o modelo lê a resposta, " +
+        "extrai os conceitos e registra cada um com o trecho dela. A resposta passa a " +
+        "existir fora da conversa.";
+      acao.addEventListener("click", function () {
+        opcoes.aoVirarConhecimento(acao);
+      });
+      linha.appendChild(acao);
+      alvo.appendChild(linha);
     }
 
     if (input) input.addEventListener("input", autoResize);

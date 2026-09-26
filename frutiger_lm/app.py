@@ -458,6 +458,53 @@ async def reset_chat(notebook_id: str) -> dict[str, Any]:
     return {"reset": notebook_id}
 
 
+@app.post("/api/notebooks/{notebook_id}/conhecimento")
+async def virar_conhecimento(notebook_id: str) -> dict[str, Any]:
+    """A última conclusão do chat vira conhecimento no grafo (D068).
+
+    O texto vem do **checkpointer**, e não do corpo do pedido — de propósito. Assim o
+    `message_id` é exato (é o id da mensagem que está sendo guardada, não um id achado
+    por semelhança de texto) e o que entra no grafo é exatamente o que o modelo
+    respondeu: o navegador não tem como mandar outro texto para virar "conhecimento".
+
+    Devolve os conceitos que ficaram ancorados. Zero conceito é resposta legítima — uma
+    resposta que não cita nada de novo não inventa nó para ter o que guardar.
+    """
+    _notebook_or_404(notebook_id)
+    # Lê o estado pelo SAVER, e não pelo agente: montar o agente exige modelo
+    # configurado, e ler a conversa não exige — quem exige é a extração, três linhas
+    # abaixo, com a mensagem de config certa. Sem isto, quem não tivesse modelo
+    # configurado receberia "configure o modelo" quando o problema era não haver
+    # conclusão nenhuma.
+    tupla = await checkpoints.saver.aget_tuple(checkpoint.config(notebook_id))
+    valores = (tupla.checkpoint or {}).get("channel_values", {}) if tupla else {}
+    mensagens = valores.get("messages", [])
+
+    conclusao = None
+    for mensagem in reversed(mensagens):
+        if getattr(mensagem, "type", "") == "ai" and str(mensagem.content or "").strip():
+            conclusao = mensagem
+            break
+    if conclusao is None:
+        raise HTTPException(400, "Não há conclusão nesta conversa para virar conhecimento.")
+
+    try:
+        resumo = await extracao.extrair_conversa(
+            notebook_id,
+            str(conclusao.content),
+            thread_id=checkpoint.thread_id(notebook_id),
+            message_id=getattr(conclusao, "id", None),
+        )
+    except llm.ModeloNaoConfigurado as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 — a mensagem vai para a tela
+        log.exception("falha ao virar conhecimento")
+        # `explicar` devolve a DICA (ver llm.py) — sem ela o 502 não diz o que fazer.
+        raise HTTPException(502, f"{type(exc).__name__}: {exc}{llm.explicar(exc)}") from exc
+
+    return {"notebook_id": notebook_id, **resumo}
+
+
 # --------------------------------------------------------------------------- #
 # Conversa global — todos os cadernos (D023, D039)
 # --------------------------------------------------------------------------- #

@@ -285,6 +285,22 @@ frutiger_lm/
   ordem importa (filhas antes das mães). `embeddings` e `suspeitas` referenciam `concepts`:
   entram antes dela na lista, senão a FK quebra o teste seguinte com um erro que não fala do
   teste.
+- **Ler a conversa não precisa de modelo configurado; montar o agente precisa.** A rota do
+  "virar conhecimento" (D068) lê o estado pelo **saver** (`checkpoints.saver.aget_tuple`),
+  e não por `agent.montar(...).aget_state(...)`. Com o agente, quem não tivesse modelo
+  configurado recebia **409 "configure o modelo"** mesmo quando o problema real era "não há
+  conclusão nenhuma" — o teste pegou exatamente isso. A extração, essa sim, precisa do
+  modelo e falha com a mensagem de config certa.
+- **A deduplicação de menção compara a ORIGEM inteira.** `registrar_mencao` deduplica por
+  (conceito, trecho, `source_id`, `output_id`) e — desde o D068 — também `thread_id` e
+  `message_id`. Sem os dois últimos, a mesma frase dita em duas conclusões diferentes
+  pareceria a mesma menção: a segunda sumiria, e a contagem de menções é o que decide se um
+  conceito é do material (D054) ou de passagem.
+- **A âncora da conversa é a resposta, e isso aparece na tela.** Um trecho dito pelo MODELO
+  com a mesma cara de um trecho de fonte é o defeito mais grave possível neste projeto.
+  `mentions` sem `source_id`/`output_id` ganham a classe `da-conversa` (lilás, a mesma cor
+  da aresta inferida) e o rótulo "conversa — dita pelo modelo". Se você criar outro lugar
+  que mostre menções, marque-as também.
 
 ## Validar com o modelo real
 

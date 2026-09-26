@@ -212,12 +212,19 @@ def registrar_mencao(
     with connect() as conn:
         # Re-extrair a mesma fonte não pode duplicar: a mesma menção (conceito,
         # origem, trecho) só entra uma vez.
+        #
+        # `thread_id`/`message_id` entram na comparação desde o D068: sem eles, a mesma
+        # frase dita em DUAS conclusões diferentes (dois `message_id`, nenhum
+        # `source_id`) pareceria a mesma menção e a segunda sumiria — e a contagem de
+        # menções é o que decide se um conceito é do material (D054) ou de passagem.
         repetida = conn.execute(
             """SELECT 1 FROM mentions
                WHERE concept_id = ? AND excerpt = ?
                  AND IFNULL(source_id, '') = IFNULL(?, '')
-                 AND IFNULL(output_id, '') = IFNULL(?, '')""",
-            (concept_id, recorte, source_id, output_id),
+                 AND IFNULL(output_id, '') = IFNULL(?, '')
+                 AND IFNULL(thread_id, '') = IFNULL(?, '')
+                 AND IFNULL(message_id, '') = IFNULL(?, '')""",
+            (concept_id, recorte, source_id, output_id, thread_id, message_id),
         ).fetchone()
         if repetida:
             return True

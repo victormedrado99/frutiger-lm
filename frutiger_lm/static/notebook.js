@@ -222,7 +222,43 @@
     // que o documento pedido PELO CHAT aparece na tela (a ferramenta dispara o run
     // sem passar por aqui).
     aoTerminar: function () { procurarCompilacao(); },
+    // "Virar conhecimento" (D068) só existe aqui: é o chat do CADERNO, e o conceito
+    // precisa de um caderno para viver. No chat global não há em que ancorar.
+    aoVirarConhecimento: virarConhecimento,
   });
+
+  /* Guarda a conclusão que acabou de chegar no grafo deste caderno.
+
+     O texto NÃO vai daqui: a rota lê a última resposta do checkpointer. Assim o
+     `message_id` é exato e ninguém (nem este arquivo) pode mandar outro texto para
+     virar "conhecimento" — o que entra no grafo é o que o modelo disse. */
+  async function virarConhecimento(botao) {
+    botao.disabled = true;
+    botao.textContent = "lendo a resposta…";
+    try {
+      var r = await C.api("/api/notebooks/" + NB_ID + "/conhecimento", { method: "POST" });
+      if (!r.conceitos.length) {
+        // Resposta que não cita nada de novo é resposta legítima: nada foi inventado
+        // para ter o que guardar.
+        botao.textContent = "nada novo";
+        C.toast("A resposta não citou nenhum conceito novo — nada foi guardado.", "", 4000);
+        return;
+      }
+      botao.textContent = "no grafo ✓";
+      C.toast(
+        r.conceitos.length + " conceito(s) agora existem no grafo: " + r.conceitos.join(", "),
+        "ok",
+        6000
+      );
+      if (r.descartadas) {
+        C.toast(r.descartadas + " trecho(s) sem âncora foram descartados.", "", 4000);
+      }
+    } catch (err) {
+      botao.textContent = "virar conhecimento";
+      botao.disabled = false;
+      C.toast(err.message, "err");
+    }
+  }
 
   function introDoCaderno() {
     var nb = state.notebook || {};

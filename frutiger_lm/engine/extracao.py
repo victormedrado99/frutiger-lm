@@ -339,6 +339,85 @@ async def extrair_fonte(source_id: str, *, modelo: Any = None) -> AsyncIterator[
     }
 
 
+async def extrair_conversa(
+    notebook_id: str,
+    texto: str,
+    *,
+    thread_id: str,
+    message_id: str | None = None,
+    modelo: Any = None,
+) -> dict[str, Any]:
+    """Uma conclusão da conversa vira conhecimento (D068) — o último item do F3.
+
+    É o mesmo extrator das fontes, com a âncora trocada: em vez de `source_id`, a menção
+    leva `thread_id` (e `message_id`), e a referência conferida é o próprio texto da
+    resposta. Isso não é detalhe: a âncora continua sendo um **trecho literal**, e o
+    trecho continua sendo conferido contra o texto de onde saiu. O que muda é a natureza
+    da origem — papel do material, agora fala do modelo —, e por isso quem lê a menção
+    precisa saber disso (a tela marca, D068).
+
+    Trabalho pequeno: uma resposta cabe num bloco, e o fatiamento só entra se ela for
+    longa. Não roda na oficina: é uma chamada de modelo, não uma tarefa longa (D044).
+    """
+    if not str(texto).strip():
+        return {"conceitos": [], "mencionadas": 0, "descartadas": 0, "blocos": 0, "relacoes": 0}
+
+    fatias = blocos(texto)
+    mencionadas = descartadas = relacoes = 0
+    conceitos: list[str] = []
+
+    for bloco in fatias:
+        # O vocabulário é relido a cada bloco, como na extração de fonte: o conceito
+        # criado agora já existe para o bloco seguinte.
+        resultado = await extrair_bloco(bloco, knowledge.vocabulario(), modelo=modelo)
+        ancorados: dict[str, str] = {}
+        ids_do_bloco: list[str] = []
+
+        for extraido in resultado.conceitos:
+            if not extraido.nome.strip():
+                continue
+            if not knowledge.trecho_existe(extraido.trecho, bloco):
+                descartadas += 1
+                continue
+            conceito = knowledge.achar_ou_criar(extraido.nome, extraido.tipo)
+            gravou = knowledge.registrar_mencao(
+                conceito["id"],
+                notebook_id=notebook_id,
+                trecho=extraido.trecho,
+                referencia=bloco,
+                thread_id=thread_id,
+                message_id=message_id,
+            )
+            if gravou:
+                mencionadas += 1
+                ids_do_bloco.append(conceito["id"])
+                ancorados[knowledge.normalizar(extraido.nome)] = conceito["id"]
+                if conceito["name"] not in conceitos:
+                    conceitos.append(conceito["name"])
+            else:
+                descartadas += 1
+
+        knowledge.co_ocorrencia(ids_do_bloco)
+
+        for relacao in resultado.relacoes:
+            de = ancorados.get(knowledge.normalizar(relacao.de))
+            para = ancorados.get(knowledge.normalizar(relacao.para))
+            # `quem="conversa"` e não "modelo": a procedência tem que dizer que a
+            # afirmação saiu da CONVERSA, e não de uma fonte do caderno.
+            if de and para and knowledge.ligar_explicito(
+                de, para, trecho=relacao.trecho, referencia=bloco, quem="conversa"
+            ):
+                relacoes += 1
+
+    return {
+        "conceitos": conceitos,
+        "mencionadas": mencionadas,
+        "descartadas": descartadas,
+        "relacoes": relacoes,
+        "blocos": len(fatias),
+    }
+
+
 async def extrair_caderno(notebook_id: str, *, modelo: Any = None) -> AsyncIterator[dict[str, Any]]:
     """Extrai de todas as fontes ativas do caderno, uma a uma."""
     fontes = [f for f in db.list_sources(notebook_id) if f["active"] and f["status"] == "ready"]
